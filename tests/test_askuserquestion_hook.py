@@ -168,5 +168,34 @@ class TestPreToolUseOutput(unittest.TestCase):
         self.assertNotIn("hookSpecificOutput", out)
 
 
+class TestCitationListing(unittest.TestCase):
+    def setUp(self):
+        self.mod = _load_verifier()
+
+    def test_lists_only_pointer_verified_citations(self):
+        """Should list only pointer-verified citations; asserted and failed are
+        not listed (failures still surface in the Grounding check section)."""
+        findings = [("FABRICATED", "Read(missing.py:1) — no such file found")]
+        stats = {"pointer_verified": 1, "asserted": 1, "failed": 1}
+        cited = [
+            ("Read(a.py:1)", "pointer-verified"),
+            ("Bash(git push)", "asserted"),
+            ("Read(missing.py:1)", "FABRICATED"),
+        ]
+        out = self.mod.report(findings, stats, cited)
+
+        # pointer-verified IS listed
+        self.assertIn("[pointer-verified]", out)
+        self.assertIn("Read(a.py:1)", out)
+        # asserted is NOT listed as a citation line
+        self.assertNotIn("[asserted]", out)
+        self.assertNotIn("Bash(git push)", out)
+        # failed is NOT duplicated as a citation line ...
+        self.assertNotIn("[FABRICATED]", out)
+        # ... but the failure still appears in the Grounding check section
+        self.assertIn("Grounding check:", out)
+        self.assertIn("FABRICATED:", out)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

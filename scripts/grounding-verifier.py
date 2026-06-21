@@ -74,9 +74,10 @@ from grounding_spec import (  # noqa: E402
 # claims are not findings at all; they pass through untouched by design).
 BLOCK_CODES = set()
 
-# Set True to list every citation with its tier (pointer-verified / asserted /
-# failed) in the report, instead of just aggregate counts. Off by default to
-# keep the report compact; turn on when auditing.
+# When True, list each pointer-verified citation (✓ file:line) beneath the
+# summary line. Asserted (unchecked) and failed citations are NOT listed —
+# failures still surface in the "Grounding check:" section, and every tier is
+# counted in the summary line regardless. Set False to show the summary only.
 LIST_CITATIONS = True
 
 
@@ -420,9 +421,13 @@ def report(findings, stats=None, cited=None):
         if s:
             lines.append(s)
     if LIST_CITATIONS and cited:
-        sym = {"pointer-verified": "✓", "asserted": "~"}
+        # List only pointer-verified citations. Asserted (unchecked) items are
+        # omitted as noise; failed citations are omitted here because they already
+        # appear, with their reason, in the "Grounding check:" section below. The
+        # summary line above still carries the counts for every tier.
         for atom, tier in cited:
-            lines.append("  %s %s  [%s]" % (sym.get(tier, "✗"), atom, tier))
+            if tier == "pointer-verified":
+                lines.append("  ✓ %s  [%s]" % (atom, tier))
     if findings:
         lines.append("Grounding check:")
         for code, msg in findings:
