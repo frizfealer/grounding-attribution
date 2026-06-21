@@ -16,6 +16,28 @@ against your filesystem. It has two halves:
 The tool taxonomy lives once in `scripts/grounding_spec.py`; both halves derive
 from it, so coverage cannot drift between the policy and the verifier.
 
+## What problem does this solve?
+
+Large language models confidently cite files, line numbers, and command output
+that don't exist — the `app.py:42` that was never opened, the test result that
+was never run. If you've wanted to **stop Claude Code from hallucinating
+citations**, **verify that AI-generated `file:line` references are real**, or
+**audit which claims in an answer are actually grounded in your codebase**, that
+is exactly what this plugin enforces:
+
+- **Catch fabricated file:line citations** — every `Read`/`Edit`/`Write`
+  citation is re-checked against the current file on disk; pointers to missing
+  files or out-of-range lines are flagged.
+- **Catch never-opened references** — a citation to a file the session never
+  actually read is flagged, even if the file exists.
+- **Force a grounded-vs-unverified split** — Claude must label every non-trivial
+  claim as a machine-checkable citation or an explicit `unverified`, so you can
+  see at a glance what rests on evidence and what rests on the model's guess.
+
+It is a **provenance and fact-checking layer for AI coding agents**, built on
+Claude Code hooks — no API keys, no external services, standard-library Python
+only.
+
 ## Install
 
 Local (development):
