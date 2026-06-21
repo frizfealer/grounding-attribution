@@ -24,7 +24,8 @@ scope: citation integrity (is the pointer real, in range, and actually
 read/written), NOT truth of the claim. See OPTIONAL ESCALATION at the bottom
 for semantic checking via a second model call.
 
-Wire to: Stop  (and SubagentStop if you use subagents).
+Wire to: Stop, PreToolUse/AskUserQuestion (Stop does not fire when Claude pauses
+to ask the user a question), and SubagentStop if you use subagents.
 
 Findings (whether one BLOCKS or merely WARNS is set by BLOCK_CODES below;
 default is warn-only — nothing blocks until you opt a code in):
@@ -509,6 +510,12 @@ def main():
     cwd = data.get("cwd") or os.getcwd()
     session_id = data.get("session_id", "")
     stop_active = bool(data.get("stop_hook_active"))
+    # Which event invoked us. The verifier is wired to BOTH Stop (turn end) and
+    # PreToolUse/AskUserQuestion (Claude is asking the user a question — Stop does
+    # NOT fire at that pause). The warn-only systemMessage is identical for both,
+    # but the BLOCK output schema differs: Stop uses {"decision":"block"} while
+    # PreToolUse must deny via hookSpecificOutput.permissionDecision.
+    event = data.get("hook_event_name", "")
 
     # The Stop hook may fire before Claude Code finishes writing this turn to the
     # transcript; wait for it to settle so we score the whole answer, not a
@@ -522,18 +529,24 @@ def main():
     block, note = should_block(session_id, stop_active, blocking)
 
     if block:
-        print(
-            json.dumps(
-                {
-                    "decision": "block",
-                    "reason": (
-                        report(findings, stats, cited)
-                        + "\n\nFix or remove the flagged citations (re-Read the file, "
-                        "correct the line, or mark the claim unverified), then finish."
-                    ),
-                }
-            )
+        reason = (
+            report(findings, stats, cited)
+            + "\n\nFix or remove the flagged citations (re-Read the file, "
+            "correct the line, or mark the claim unverified), then finish."
         )
+        if event == "PreToolUse":
+            # Deny the AskUserQuestion call so Claude fixes its citations before
+            # asking; Stop's {"decision":"block"} schema is ignored by PreToolUse.
+            out = {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "deny",
+                    "permissionDecisionReason": reason,
+                }
+            }
+        else:
+            out = {"decision": "block", "reason": reason}
+        print(json.dumps(out))
         sys.exit(0)
 
     # Emit a report if there are findings OR there's a non-empty trust summary

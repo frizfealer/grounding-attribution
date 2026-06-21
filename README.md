@@ -8,10 +8,12 @@ against your filesystem. It has two halves:
 - **Injection** (`UserPromptSubmit`) — adds a policy telling Claude to mark every
   non-trivial claim as VERIFIABLE (with a machine-checkable citation like
   `Read(path:line)`, `Bash(cmd)`, `MCP(server.tool)`) or `unverified`.
-- **Verifier** (`Stop`) — mechanically re-checks the filesystem-checkable
-  citations (`Read`/`Edit`/`Write`/`MultiEdit`) against the **current** files and
-  against what was actually opened this session. Fabricated, out-of-range, or
-  never-opened citations are flagged.
+- **Verifier** (`Stop` **and** `PreToolUse`/`AskUserQuestion`) — mechanically
+  re-checks the filesystem-checkable citations (`Read`/`Edit`/`Write`/`MultiEdit`)
+  against the **current** files and against what was actually opened this session.
+  Fabricated, out-of-range, or never-opened citations are flagged. It runs both
+  when Claude finishes a turn **and** when Claude pauses to ask you a question
+  (where `Stop` does not fire), so question-ending answers still get checked.
 
 The tool taxonomy lives once in `scripts/grounding_spec.py`; both halves derive
 from it, so coverage cannot drift between the policy and the verifier.
