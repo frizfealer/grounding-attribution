@@ -1,0 +1,13 @@
+{
+  "name": "my-test-plugins",
+  "owner": {
+    "name": "Yeu-Chern Harn"
+  },
+  "plugins": [
+    {
+      "name": "grounding-attribution",
+      "source": "./",
+      "description": "Source-attribution injection + mechanical grounding verification."
+    }
+  ]
+}

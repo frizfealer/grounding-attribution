@@ -1,0 +1,10 @@
+{
+  "name": "grounding-attribution",
+  "version": "0.1.0",
+  "description": "Source-attribution injection + mechanical grounding verification. Makes Claude Code cite machine-checkable artifacts (file:line, tool calls) and verifies those citations against the current filesystem; warn-only by default.",
+  "author": {
+    "name": "Yeu-Chern Harn"
+  },
+  "license": "MIT",
+  "keywords": ["hooks", "grounding", "verification", "attribution", "provenance"]
+}

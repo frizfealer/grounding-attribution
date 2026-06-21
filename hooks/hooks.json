@@ -1,0 +1,26 @@
+{
+  "description": "Inject the source-attribution policy each turn (UserPromptSubmit) and verify filesystem-checkable citations when Claude finishes (Stop).",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/source-attribution-inject.sh"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/grounding-verifier.py"]
+          }
+        ]
+      }
+    ]
+  }
+}
