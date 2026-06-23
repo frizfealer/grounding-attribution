@@ -225,9 +225,10 @@ but it is NOT safely or deterministically re-runnable. Cite the call AND show
 the relevant output you actually got:
 %%RECORDED_LIST%%
 
-For a Bash citation, wrap the exact output you are claiming in backticks; the
-verifier confirms each backticked span is a verbatim substring of the recorded
-output (output-verified). Prose you do not backtick is never checked.
+For a Bash citation, wrap the exact output you are claiming in backticks (the
+output, not the command); the verifier confirms each backticked span is a
+verbatim substring of the recorded output (output-verified). Prose you do not
+backtick is never checked.
 
 VERIFIABLE / conversation — recorded in the session transcript (the JSONL on
 disk at transcript_path, which the hook already reads), so it is checkable by

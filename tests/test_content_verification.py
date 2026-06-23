@@ -140,6 +140,22 @@ class TestVerifyBashOutput(unittest.TestCase):
         self.assertIn("BASH_OUTPUT_MISMATCH", [f[0] for f in findings])
         self.assertEqual(stats["mismatched"], 1)
 
+    def test_backticked_command_is_not_checked_as_output(self):
+        """Should ignore backticks INSIDE Bash(...) — only the output portion is
+        checked, so backticking the command does not cause a false mismatch."""
+        body = "Bash(`find . -type f | head`) — output includes `worker.py`"
+        findings, stats, cited = self._verify(body, ["./worker.py\n./strategist.py\n"])
+        self.assertIn((body, "output-verified"), cited)
+        self.assertEqual(stats["output_verified"], 1)
+        self.assertEqual([f for f in findings if f[0] == "BASH_OUTPUT_MISMATCH"], [])
+
+    def test_output_misquote_still_flags_with_backticked_command(self):
+        """Should still flag a real OUTPUT misquote even when the command is
+        backticked (the output portion is what gets checked)."""
+        findings, stats, cited = self._verify(
+            "Bash(`ls`) — output includes `nope.py`", ["worker.py\n"])
+        self.assertIn("BASH_OUTPUT_MISMATCH", [f[0] for f in findings])
+
 
 class TestVerifyFileContent(unittest.TestCase):
     def setUp(self):

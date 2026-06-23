@@ -347,13 +347,33 @@ def read_cited_text(path, start, end):
 _BASH_ATOM_RE = re.compile(r"^\s*Bash\s*\(")
 
 
+def _bash_output_portion(body):
+    """The part of a Bash footnote AFTER the Bash(<cmd>) atom — its output
+    description. Backticks INSIDE the command are not claimed output, so skip
+    them by finding the matching close paren of Bash(. Falls back to the whole
+    body if the parens are unbalanced."""
+    open_i = body.find("(")
+    if open_i == -1:
+        return body
+    depth = 0
+    for j in range(open_i, len(body)):
+        c = body[j]
+        if c == "(":
+            depth += 1
+        elif c == ")":
+            depth -= 1
+            if depth == 0:
+                return body[j + 1:]
+    return body
+
+
 def _classify_recorded(body, bash_outputs):
     """Tier a non-filesystem footnote. Bash footnotes get verbatim-quote checking
     against recorded output; everything else (Web/Task/MCP/Grep/Glob/context) is
     'asserted'. Returns (tier, finding_or_None)."""
     if not _BASH_ATOM_RE.match(body):
         return "asserted", None
-    spans = BACKTICK_SPAN.findall(body)
+    spans = BACKTICK_SPAN.findall(_bash_output_portion(body))
     if not spans:
         return "asserted", None  # nothing claimed verbatim
     missing = [sp for sp in spans if not any(sp in out for out in bash_outputs)]
