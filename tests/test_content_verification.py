@@ -4,6 +4,7 @@ Covers the shared BACKTICK_SPAN pattern, Bash-output checking, opt-in file-line
 content checking, and how the new tiers are reported. Stdlib unittest only.
 """
 import importlib.util
+import json
 import os
 import sys
 import tempfile
@@ -34,9 +35,6 @@ class TestBacktickSpan(unittest.TestCase):
     def test_ignores_unquoted_prose(self):
         """Should return nothing when no span is backticked."""
         self.assertEqual(grounding_spec.BACKTICK_SPAN.findall("all tests pass"), [])
-
-
-import json
 
 
 def _write_transcript(rows):
@@ -85,6 +83,23 @@ class TestCollectBashOutputs(unittest.TestCase):
         finally:
             os.remove(tr)
         self.assertEqual(bash_outputs, [])
+
+    def test_collects_list_of_text_parts_output(self):
+        """Should join list-of-text-parts tool_result content into bash_outputs."""
+        rows = [
+            {"type": "assistant", "message": {"role": "assistant", "content": [
+                {"type": "tool_use", "id": "b2", "name": "Bash",
+                 "input": {"command": "echo hi"}}]}},
+            {"type": "user", "message": {"role": "user", "content": [
+                {"type": "tool_result", "tool_use_id": "b2",
+                 "content": [{"type": "text", "text": "hi there"}]}]}},
+        ]
+        tr = _write_transcript(rows)
+        try:
+            reads, bash_outputs, text = self.mod.collect(tr, REPO)
+        finally:
+            os.remove(tr)
+        self.assertEqual(bash_outputs, ["hi there"])
 
 
 if __name__ == "__main__":
