@@ -198,6 +198,42 @@ class TestVerifyFileContent(unittest.TestCase):
         self.assertEqual(stats["pointer_verified"], 1)
         self.assertFalse(findings)
 
+    def _verify_citation(self, path, locator, quoted):
+        """Verify one Read footnote with an arbitrary :locator ('2', '2-4', or '' for whole file)."""
+        reads = {os.path.realpath(path): "ALL"}
+        atom = "Read(%s%s)" % (path, (":" + locator) if locator else "")
+        body = atom + ((" — `%s`" % quoted) if quoted is not None else "")
+        text = "Claim `[1]`.\n\n`[1]` " + body
+        return self.mod.verify(text, reads, [], os.path.dirname(path))
+
+    def test_range_content_match(self):
+        """Should pointer-verify when the span is within the cited line range."""
+        p = self._file(["L1", "def foo():", "    return 1", "L4"])
+        try:
+            findings, stats, cited = self._verify_citation(p, "2-4", "return 1")
+        finally:
+            os.remove(p)
+        self.assertEqual(stats["pointer_verified"], 1)
+        self.assertEqual([f for f in findings if f[0] == "CONTENT_MISMATCH"], [])
+
+    def test_range_content_mismatch(self):
+        """Should flag CONTENT_MISMATCH when the span is outside the cited range."""
+        p = self._file(["L1", "def foo():", "    return 1", "nope"])
+        try:
+            findings, stats, cited = self._verify_citation(p, "2-3", "nope")
+        finally:
+            os.remove(p)
+        self.assertIn("CONTENT_MISMATCH", [f[0] for f in findings])
+
+    def test_whole_file_content_match(self):
+        """Should match a span anywhere in the file when no line is cited."""
+        p = self._file(["alpha", "beta", "gamma"])
+        try:
+            findings, stats, cited = self._verify_citation(p, "", "beta")
+        finally:
+            os.remove(p)
+        self.assertEqual(stats["pointer_verified"], 1)
+
 
 class TestReportingTiers(unittest.TestCase):
     def setUp(self):
