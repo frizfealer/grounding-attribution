@@ -125,6 +125,7 @@ class TestVerifyBashOutput(unittest.TestCase):
             "Bash(npm test) — `Ran 9 tests`", ["Ran 5 tests in 0.523s\nOK"])
         self.assertIn("BASH_OUTPUT_MISMATCH", [f[0] for f in findings])
         self.assertEqual(stats["mismatched"], 1)
+        self.assertIn(("Bash(npm test) — `Ran 9 tests`", "BASH_OUTPUT_MISMATCH"), cited)
 
     def test_asserted_when_no_backticks(self):
         """Should leave a Bash citation asserted when nothing is backticked."""
@@ -137,6 +138,7 @@ class TestVerifyBashOutput(unittest.TestCase):
         """Should treat `0.5s` as absent from `0.523s` (no fuzzy match)."""
         findings, stats, cited = self._verify("Bash(t) — `0.5s`", ["ran in 0.523s"])
         self.assertIn("BASH_OUTPUT_MISMATCH", [f[0] for f in findings])
+        self.assertEqual(stats["mismatched"], 1)
 
 
 if __name__ == "__main__":
