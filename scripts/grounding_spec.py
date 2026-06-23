@@ -142,6 +142,11 @@ CITE_ATOM_RE = re.compile(_MARK_PAT + r"\s*([A-Za-z_]+)\s*\(")
 # Derived from the markers above so it never drifts.
 ANY_CITATION = re.compile(_MARK_PAT + r"|" + re.escape(WARN_GLYPH))
 
+# Verbatim-quote convention (shared by Bash output and file-line content checks):
+# the author wraps spans they claim are verbatim in backticks; the verifier checks
+# exactly those against the real source. findall -> the inner text of each span.
+BACKTICK_SPAN = re.compile(r"`([^`]+)`")
+
 
 def is_checked(tool_name):
     """True if the verifier mechanically checks citations of this tool."""
@@ -211,20 +216,32 @@ VERIFIABLE / filesystem-checkable — the effect is on disk, re-readable NOW:
   Cite a real path, a line that exists, a file you opened/changed THIS session
   with the Read/Edit/Write tools — if grep or a search gave you the line instead,
   that's a Grep(pattern) or Bash(<cmd>) citation, NOT Read(path:line).
+  You MAY also quote the exact cited line content in backticks for a stronger
+  check — but ONLY if it is already in your context; never re-read a file just
+  to quote it.
 
 VERIFIABLE / recorded-output — the call happened and you captured its result,
 but it is NOT safely or deterministically re-runnable. Cite the call AND show
 the relevant output you actually got:
 %%RECORDED_LIST%%
 
+For a Bash citation, wrap the exact output you are claiming in backticks (the
+output, not the command); the verifier confirms each backticked span is a
+verbatim substring of the recorded output (output-verified). Prose you do not
+backtick is never checked.
+
 VERIFIABLE / conversation — recorded in the session transcript (the JSONL on
 disk at transcript_path, which the hook already reads), so it is checkable by
 re-reading that transcript — the same mechanism that confirms a recorded-output
 call happened, NOT a check against your source files:
     %%CITE_CONTEXT%%
-Memory and project rules live in FILES (CLAUDE.md, a memory store): cite them as
-Read(CLAUDE.md:line) — a file is filesystem-checkable, a bare "memory" label is
-not. (A memory store reached over MCP is an MCP(...) recorded-output citation.)
+Memory and project rules (CLAUDE.md at any level, or a memory store such as
+MEMORY.md) are INJECTED into your context at session start — you did NOT read
+them from disk this turn, and some may not exist on disk at all. Cite them as
+`context — memory: <fact>` (injected context), NOT Read(...). They are real
+files, so to make the citation filesystem-checkable, actually open the file with
+the Read tool this session and THEN cite Read(path:line). (A memory store
+reached over MCP is an MCP(...) citation.)
 
 Never invent a path, line, command, output, URL, tool result, or citation.
 
@@ -296,6 +313,10 @@ def _check():
     assert ANY_CITATION.search(mark(1)), "inline marker not detected"
     assert ANY_CITATION.search(warn("x")), "unverified warning not detected"
     assert rx.search(cite("Read(f.py:1)")), "FILE_CITE fails on code-span atom"
+    # backticked-span extraction: the shared verbatim-quote convention
+    spans = BACKTICK_SPAN.findall("Bash(x) — `Ran 5 tests`, `OK`")
+    assert spans == ["Ran 5 tests", "OK"], "BACKTICK_SPAN extraction wrong: %r" % spans
+    assert BACKTICK_SPAN.findall("no backticks here") == [], "BACKTICK_SPAN matched prose"
     print("grounding_spec OK — %d tools; checked=%s; range=%s; all=%s"
           % (len(TOOLS), ",".join(CHECKED), ",".join(RANGE_TOOLS), ",".join(ALL_TOOLS)))
 
