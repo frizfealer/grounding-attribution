@@ -234,9 +234,13 @@ disk at transcript_path, which the hook already reads), so it is checkable by
 re-reading that transcript — the same mechanism that confirms a recorded-output
 call happened, NOT a check against your source files:
     %%CITE_CONTEXT%%
-Memory and project rules live in FILES (CLAUDE.md, a memory store): cite them as
-Read(CLAUDE.md:line) — a file is filesystem-checkable, a bare "memory" label is
-not. (A memory store reached over MCP is an MCP(...) recorded-output citation.)
+Memory and project rules (CLAUDE.md at any level, or a memory store such as
+MEMORY.md) are INJECTED into your context at session start — you did NOT read
+them from disk this turn, and some may not exist on disk at all. Cite them as
+`context — memory: <fact>` (injected context), NOT Read(...). They are real
+files, so to make the citation filesystem-checkable, actually open the file with
+the Read tool this session and THEN cite Read(path:line). (A memory store
+reached over MCP is an MCP(...) citation.)
 
 Never invent a path, line, command, output, URL, tool result, or citation.
 

@@ -279,6 +279,13 @@ class TestPolicyText(unittest.TestCase):
         self.assertIn("backtick", policy.lower())
         self.assertIn("output-verified", policy)
 
+    def test_policy_cites_injected_memory_as_context_not_read(self):
+        """Should tell the model to cite injected memory as context, not Read()."""
+        policy = grounding_spec.render_policy()
+        # injected memory is context-grade: it was not read from disk this turn
+        self.assertIn("injected", policy.lower())
+        self.assertIn("context — memory", policy)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
