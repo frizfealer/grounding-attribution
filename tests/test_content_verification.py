@@ -199,5 +199,42 @@ class TestVerifyFileContent(unittest.TestCase):
         self.assertFalse(findings)
 
 
+class TestReportingTiers(unittest.TestCase):
+    def setUp(self):
+        self.mod = _load_verifier()
+
+    def test_summary_includes_output_verified(self):
+        """Should show an output-verified count in the summary line."""
+        self.assertIn("2 output-verified",
+                      self.mod.summary_line({"output_verified": 2}))
+
+    def test_summary_includes_mismatched(self):
+        """Should show a content/output mismatch count in the summary line."""
+        self.assertIn("1 content/output mismatch",
+                      self.mod.summary_line({"mismatched": 1}))
+
+    def test_report_lists_output_verified_citation(self):
+        """Should list output-verified citations alongside pointer-verified."""
+        out = self.mod.report(
+            [], {"output_verified": 1},
+            [("Bash(npm test) — `OK`", "output-verified")])
+        self.assertIn("output-verified", out)
+        self.assertIn("Bash(npm test) — `OK`", out)
+
+    def test_mismatch_surfaces_as_warning(self):
+        """Should list BASH_OUTPUT_MISMATCH under Grounding check with a warn mark."""
+        out = self.mod.report(
+            [("BASH_OUTPUT_MISMATCH", "Bash(x) — `y` not found")],
+            {"mismatched": 1}, [("Bash(x) — `y`", "BASH_OUTPUT_MISMATCH")])
+        self.assertIn("Grounding check:", out)
+        self.assertIn("BASH_OUTPUT_MISMATCH", out)
+        self.assertIn("[!]", out)  # warn, not [X]
+
+    def test_new_codes_are_warn_only_by_default(self):
+        """Should keep the new codes out of BLOCK_CODES."""
+        self.assertNotIn("CONTENT_MISMATCH", self.mod.BLOCK_CODES)
+        self.assertNotIn("BASH_OUTPUT_MISMATCH", self.mod.BLOCK_CODES)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -485,15 +485,19 @@ def verify(text, reads, bash_outputs, cwd):
 
 
 def summary_line(stats):
-    """Honest one-line trust summary. 'pointer-verified' means the pointer holds
-    (file/line real & opened) — NOT that the claim's prose is correct."""
+    """Honest one-line trust summary. 'pointer-verified'/'output-verified' mean
+    the pointer/quote holds — NOT that the claim's prose is correct."""
     parts = []
-    if stats["pointer_verified"]:
+    if stats.get("pointer_verified"):
         parts.append("%d pointer-verified" % stats["pointer_verified"])
-    if stats["asserted"]:
+    if stats.get("output_verified"):
+        parts.append("%d output-verified" % stats["output_verified"])
+    if stats.get("asserted"):
         parts.append("%d asserted (unchecked)" % stats["asserted"])
-    if stats["failed"]:
+    if stats.get("failed"):
         parts.append("%d failed" % stats["failed"])
+    if stats.get("mismatched"):
+        parts.append("%d content/output mismatch" % stats["mismatched"])
     if not parts:
         return ""
     return "Citations: " + " · ".join(parts)
@@ -511,7 +515,7 @@ def report(findings, stats=None, cited=None):
         # appear, with their reason, in the "Grounding check:" section below. The
         # summary line above still carries the counts for every tier.
         for atom, tier in cited:
-            if tier == "pointer-verified":
+            if tier in ("pointer-verified", "output-verified"):
                 lines.append("  ✓ %s  [%s]" % (atom, tier))
     if findings:
         lines.append("Grounding check:")
