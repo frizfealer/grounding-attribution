@@ -525,6 +525,18 @@ def verify(text, reads, bash_calls, cwd):
     return findings, stats, cited
 
 
+def _render_output(n_runs, output, max_lines=12, max_chars=800):
+    """An indented block showing recorded Bash output in the verifier's own
+    report. The verifier is the SOURCE of this text (not the model), so trimming
+    is safe and is never a 'mismatch'."""
+    trimmed = output if len(output) <= max_chars else output[-max_chars:]
+    rows = trimmed.splitlines() or [""]
+    if len(rows) > max_lines:
+        rows = ["…(earlier output trimmed)"] + rows[-max_lines:]
+    head = ("ran %d×; latest output:" % n_runs) if n_runs > 1 else "recorded output:"
+    return "\n".join(["      " + head] + ["      | " + r for r in rows])
+
+
 def summary_line(stats):
     """Honest one-line trust summary. 'pointer-verified'/'call-verified' mean
     the pointer/command holds — NOT that the claim's prose is correct."""
@@ -538,7 +550,7 @@ def summary_line(stats):
     if stats.get("failed"):
         parts.append("%d failed" % stats["failed"])
     if stats.get("mismatched"):
-        parts.append("%d content/output mismatch" % stats["mismatched"])
+        parts.append("%d content mismatch" % stats["mismatched"])
     if not parts:
         return ""
     return "Citations: " + " · ".join(parts)
@@ -555,10 +567,11 @@ def report(findings, stats=None, cited=None):
         # (unchecked) items are omitted as noise; failed citations are omitted here
         # because they already appear, with their reason, in the "Grounding check:"
         # section below. The summary line above still carries the counts for every tier.
-        for entry in cited:
-            atom, tier = entry[0], entry[1]
+        for atom, tier, detail in cited:
             if tier in ("pointer-verified", "call-verified"):
                 lines.append("  ✓ %s  [%s]" % (atom, tier))
+                if detail:
+                    lines.append(_render_output(*detail))
     if findings:
         lines.append("Grounding check:")
         for code, msg in findings:

@@ -263,37 +263,45 @@ class TestReportingTiers(unittest.TestCase):
     def setUp(self):
         self.mod = _load_verifier()
 
-    def test_summary_includes_output_verified(self):
-        """Should show an output-verified count in the summary line."""
-        self.assertIn("2 output-verified",
-                      self.mod.summary_line({"output_verified": 2}))
+    def test_summary_includes_call_verified(self):
+        """Should show a call-verified count in the summary line."""
+        self.assertIn("2 call-verified",
+                      self.mod.summary_line({"call_verified": 2}))
 
-    def test_summary_includes_mismatched(self):
-        """Should show a content/output mismatch count in the summary line."""
-        self.assertIn("1 content/output mismatch",
+    def test_summary_includes_content_mismatch(self):
+        """Should show a content mismatch count in the summary line."""
+        self.assertIn("1 content mismatch",
                       self.mod.summary_line({"mismatched": 1}))
 
-    def test_report_lists_output_verified_citation(self):
-        """Should list output-verified citations alongside pointer-verified."""
+    def test_report_renders_recorded_output(self):
+        """Should print the recorded output beneath a call-verified citation."""
         out = self.mod.report(
-            [], {"output_verified": 1},
-            [("Bash(npm test) — `OK`", "output-verified")])
-        self.assertIn("output-verified", out)
-        self.assertIn("Bash(npm test) — `OK`", out)
+            [], {"call_verified": 1},
+            [("Bash(npm test) — pass", "call-verified", (1, "Ran 5 tests\nOK"))])
+        self.assertIn("call-verified", out)
+        self.assertIn("Ran 5 tests", out)
+        self.assertIn("OK", out)
 
-    def test_mismatch_surfaces_as_warning(self):
-        """Should list BASH_OUTPUT_MISMATCH under Grounding check with a warn mark."""
+    def test_report_shows_run_count_when_multiple(self):
+        """Should note the run count when a command ran more than once."""
         out = self.mod.report(
-            [("BASH_OUTPUT_MISMATCH", "Bash(x) — `y` not found")],
-            {"mismatched": 1}, [("Bash(x) — `y`", "BASH_OUTPUT_MISMATCH")])
+            [], {"call_verified": 1},
+            [("Bash(git status) — clean", "call-verified", (3, "clean"))])
+        self.assertIn("ran 3", out)
+
+    def test_command_not_found_surfaces_as_warning(self):
+        """Should list command-not-found under Grounding check with a warn mark."""
+        out = self.mod.report(
+            [("command-not-found", "Bash(x) — not recorded")],
+            {"failed": 1}, [("Bash(x)", "command-not-found", None)])
         self.assertIn("Grounding check:", out)
-        self.assertIn("BASH_OUTPUT_MISMATCH", out)
+        self.assertIn("command-not-found", out)
         self.assertIn("[!]", out)  # warn, not [X]
 
-    def test_new_codes_are_warn_only_by_default(self):
-        """Should keep the new codes out of BLOCK_CODES."""
+    def test_new_code_is_warn_only_by_default(self):
+        """Should keep command-not-found out of BLOCK_CODES."""
+        self.assertNotIn("command-not-found", self.mod.BLOCK_CODES)
         self.assertNotIn("CONTENT_MISMATCH", self.mod.BLOCK_CODES)
-        self.assertNotIn("BASH_OUTPUT_MISMATCH", self.mod.BLOCK_CODES)
 
 
 class TestPolicyText(unittest.TestCase):
