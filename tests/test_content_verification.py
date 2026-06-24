@@ -325,6 +325,13 @@ class TestPolicyText(unittest.TestCase):
         policy = grounding_spec.render_policy()
         self.assertIn("backtick", policy.lower())  # Read content tier survives
 
+    def test_policy_tells_model_to_quote_command_verbatim(self):
+        """Should tell the model to quote the command verbatim and not expand
+        shell variables, since the command match is literal."""
+        policy = grounding_spec.render_policy()
+        self.assertIn("verbatim", policy.lower())
+        self.assertIn("shell variable", policy.lower())
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

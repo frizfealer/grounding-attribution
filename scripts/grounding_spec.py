@@ -226,10 +226,13 @@ the relevant output you actually got:
 %%RECORDED_LIST%%
 
 For a Bash citation, cite the exact COMMAND you ran (the command, not the output)
-— e.g. Bash(npm test) — with an optional " — note" after it for the reader. Do
-NOT paste the output: the verifier confirms the command actually ran this session
-(call-verified) and shows the real recorded output itself, so any output you
-would have typed is redundant and unchecked.
+— e.g. Bash(npm test) — with an optional " — note" after it for the reader.
+Quote it verbatim, as typed: do NOT expand shell variables, re-quote, or
+paraphrase — the command match is literal, so a rephrased command reads as
+command-not-found even though it ran. Do NOT paste the output: the verifier
+confirms the command actually ran this session (call-verified) and shows the
+real recorded output itself, so any output you would have typed is redundant
+and unchecked.
 
 VERIFIABLE / conversation — recorded in the session transcript (the JSONL on
 disk at transcript_path, which the hook already reads), so it is checkable by
