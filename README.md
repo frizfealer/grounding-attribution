@@ -74,8 +74,9 @@ Or via a marketplace / GitHub repo once published (see Claude Code plugin docs).
 
 - Verifies citation **integrity** (pointer real, in range, actually read), not
   semantic correctness of the prose.
-- Only `Read`/`Edit`/`Write`/`MultiEdit` pointers are auto-checked. Backticked
-  Bash output and backticked file-line content are also grounded (the quoted span
-  really appears in the source), but are not semantically judged. `Grep`/`Glob`
-  and other recorded-output/conversation citations are not auto-checked yet, so
-  the absence of a flag on those is not confirmation.
+- Only `Read`/`Edit`/`Write`/`MultiEdit` pointers are auto-checked. A `Bash`
+  citation is checked by command presence (the cited command really ran this
+  session; the verifier then supplies the recorded output), and backticked
+  file-line content is checked against the source — but neither is semantically
+  judged. `Grep`/`Glob` and other recorded-output/conversation citations are not
+  auto-checked yet, so the absence of a flag on those is not confirmation.

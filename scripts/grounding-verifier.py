@@ -343,8 +343,8 @@ def read_cited_text(path, start, end):
     return "\n".join(lines[lo - 1:hi])
 
 
-# A footnote whose leading atom is a Bash citation: its backticked output spans
-# are checked against the session's recorded Bash output.
+# A footnote whose leading atom is a Bash citation: its command is matched
+# against the session's recorded Bash calls (command presence).
 _BASH_ATOM_RE = re.compile(r"^\s*Bash\s*\(")
 
 
