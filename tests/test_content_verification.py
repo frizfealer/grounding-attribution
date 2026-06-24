@@ -305,18 +305,25 @@ class TestReportingTiers(unittest.TestCase):
 
 
 class TestPolicyText(unittest.TestCase):
-    def test_policy_mentions_backtick_convention(self):
-        """Should document the verbatim-quote (backtick) convention in the policy."""
+    def test_policy_tells_model_to_cite_command_not_output(self):
+        """Should tell the model to cite the exact command, not the output."""
         policy = grounding_spec.render_policy()
-        self.assertIn("backtick", policy.lower())
-        self.assertIn("output-verified", policy)
+        self.assertIn("the command, not the output", policy)
 
-    def test_policy_cites_injected_memory_as_context_not_read(self):
-        """Should tell the model to cite injected memory as context, not Read()."""
+    def test_policy_has_no_output_verified_tier(self):
+        """Should not mention the removed output-verified tier."""
+        self.assertNotIn("output-verified", grounding_spec.render_policy())
+
+    def test_policy_still_cites_injected_memory_as_context(self):
+        """Should keep telling the model to cite injected memory as context."""
         policy = grounding_spec.render_policy()
-        # injected memory is context-grade: it was not read from disk this turn
         self.assertIn("injected", policy.lower())
         self.assertIn("context — memory", policy)
+
+    def test_policy_keeps_read_backtick_convention(self):
+        """Should keep the optional backtick line-content check for Read."""
+        policy = grounding_spec.render_policy()
+        self.assertIn("backtick", policy.lower())  # Read content tier survives
 
 
 if __name__ == "__main__":
