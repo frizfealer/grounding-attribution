@@ -243,19 +243,20 @@ def _tool_result_text(block):
 
 
 def collect(transcript_path, cwd):
-    """Return (reads, bash_outputs, last_assistant_text).
+    """Return (reads, bash_calls, last_assistant_text).
 
     reads: { realpath: "ALL" | list[(start,end|None)] }  -- lines opened this session
-    bash_outputs: list[str] -- the text of every Bash tool_result this session,
-      for verbatim-quote checking of Bash citations.
+    bash_calls: list[(command, output)] -- every Bash call this session, pairing
+      the command string with the text of its tool_result, for command-presence
+      checking of Bash citations.
     last_assistant_text: ALL assistant text of the current turn, concatenated.
       A single answer is split across many assistant entries interleaved with
       tool calls, so we accumulate every assistant text chunk produced since the
       last genuine user prompt — not just the final fragment.
     """
     reads = {}
-    bash_outputs = []
-    bash_ids = set()
+    bash_calls = []
+    bash_cmd = {}  # tool_use_id -> command string, to pair with its result
     answer_parts = []
 
     def real(p):
@@ -274,7 +275,7 @@ def collect(transcript_path, cwd):
                 if name == "Bash":
                     bid = b.get("id")
                     if bid:
-                        bash_ids.add(bid)
+                        bash_cmd[bid] = inp.get("command", "")
                 p = inp.get("file_path") or inp.get("path")
                 if not p:
                     continue
@@ -292,10 +293,9 @@ def collect(transcript_path, cwd):
                     # the file was written/changed this session -> touched in full
                     reads[rp] = "ALL"
             elif btype == "tool_result":
-                if b.get("tool_use_id") in bash_ids:
-                    t = _tool_result_text(b)
-                    if t:
-                        bash_outputs.append(t)
+                tid = b.get("tool_use_id")
+                if tid in bash_cmd:
+                    bash_calls.append((bash_cmd[tid], _tool_result_text(b)))
         if role_of(entry) == "assistant":
             txt = "".join(
                 b.get("text", "")
@@ -306,7 +306,7 @@ def collect(transcript_path, cwd):
                 answer_parts.append(txt)
 
     last_assistant_text = "\n".join(answer_parts)
-    return reads, bash_outputs, last_assistant_text
+    return reads, bash_calls, last_assistant_text
 
 
 def line_was_read(reads, rp, line):

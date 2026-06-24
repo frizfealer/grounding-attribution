@@ -45,12 +45,12 @@ def _write_transcript(rows):
     return path
 
 
-class TestCollectBashOutputs(unittest.TestCase):
+class TestCollectBashCalls(unittest.TestCase):
     def setUp(self):
         self.mod = _load_verifier()
 
-    def test_collects_bash_tool_result_output(self):
-        """Should return the text of each Bash tool_result as bash_outputs."""
+    def test_pairs_bash_command_with_its_output(self):
+        """Should return each Bash call as a (command, output) pair."""
         rows = [
             {"type": "assistant", "message": {"role": "assistant", "content": [
                 {"type": "tool_use", "id": "b1", "name": "Bash",
@@ -61,14 +61,15 @@ class TestCollectBashOutputs(unittest.TestCase):
         ]
         tr = _write_transcript(rows)
         try:
-            reads, bash_outputs, text = self.mod.collect(tr, REPO)
+            reads, bash_calls, text = self.mod.collect(tr, REPO)
         finally:
             os.remove(tr)
-        self.assertEqual(len(bash_outputs), 1)
-        self.assertIn("Ran 5 tests in 0.523s", bash_outputs[0])
+        self.assertEqual(len(bash_calls), 1)
+        self.assertEqual(bash_calls[0][0], "npm test")
+        self.assertIn("Ran 5 tests in 0.523s", bash_calls[0][1])
 
     def test_ignores_non_bash_tool_results(self):
-        """Should not collect tool_results whose tool_use was not Bash."""
+        """Should not record a non-Bash tool_use as a Bash call."""
         rows = [
             {"type": "assistant", "message": {"role": "assistant", "content": [
                 {"type": "tool_use", "id": "r1", "name": "Read",
@@ -79,13 +80,13 @@ class TestCollectBashOutputs(unittest.TestCase):
         ]
         tr = _write_transcript(rows)
         try:
-            reads, bash_outputs, text = self.mod.collect(tr, REPO)
+            reads, bash_calls, text = self.mod.collect(tr, REPO)
         finally:
             os.remove(tr)
-        self.assertEqual(bash_outputs, [])
+        self.assertEqual(bash_calls, [])
 
-    def test_collects_list_of_text_parts_output(self):
-        """Should join list-of-text-parts tool_result content into bash_outputs."""
+    def test_joins_list_of_text_parts_output(self):
+        """Should join list-of-text-parts tool_result content into the output."""
         rows = [
             {"type": "assistant", "message": {"role": "assistant", "content": [
                 {"type": "tool_use", "id": "b2", "name": "Bash",
@@ -96,10 +97,10 @@ class TestCollectBashOutputs(unittest.TestCase):
         ]
         tr = _write_transcript(rows)
         try:
-            reads, bash_outputs, text = self.mod.collect(tr, REPO)
+            reads, bash_calls, text = self.mod.collect(tr, REPO)
         finally:
             os.remove(tr)
-        self.assertEqual(bash_outputs, ["hi there"])
+        self.assertEqual(bash_calls, [("echo hi", "hi there")])
 
 
 class TestVerifyBashOutput(unittest.TestCase):
