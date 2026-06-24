@@ -34,6 +34,7 @@ default is warn-only — nothing blocks until you opt a code in):
   UNREAD_FILE  cited a file not opened/written this session
   UNREAD_LINE  opened the file but never the cited line range
   NO_CITATIONS substantial answer with zero [Source: ...] tags
+  command-not-found  cited a Bash command not run this session (warn-only)
 
 A blocking finding tells Claude it claimed a checkable source that does not
 check out, and the hook forces a fix. Warnings are reported and allowed (e.g. a
@@ -243,19 +244,20 @@ def _tool_result_text(block):
 
 
 def collect(transcript_path, cwd):
-    """Return (reads, bash_outputs, last_assistant_text).
+    """Return (reads, bash_calls, last_assistant_text).
 
     reads: { realpath: "ALL" | list[(start,end|None)] }  -- lines opened this session
-    bash_outputs: list[str] -- the text of every Bash tool_result this session,
-      for verbatim-quote checking of Bash citations.
+    bash_calls: list[(command, output)] -- every Bash call this session, pairing
+      the command string with the text of its tool_result, for command-presence
+      checking of Bash citations.
     last_assistant_text: ALL assistant text of the current turn, concatenated.
       A single answer is split across many assistant entries interleaved with
       tool calls, so we accumulate every assistant text chunk produced since the
       last genuine user prompt — not just the final fragment.
     """
     reads = {}
-    bash_outputs = []
-    bash_ids = set()
+    bash_calls = []
+    bash_cmd = {}  # tool_use_id -> command string, to pair with its result
     answer_parts = []
 
     def real(p):
@@ -274,7 +276,7 @@ def collect(transcript_path, cwd):
                 if name == "Bash":
                     bid = b.get("id")
                     if bid:
-                        bash_ids.add(bid)
+                        bash_cmd[bid] = inp.get("command", "")
                 p = inp.get("file_path") or inp.get("path")
                 if not p:
                     continue
@@ -292,10 +294,9 @@ def collect(transcript_path, cwd):
                     # the file was written/changed this session -> touched in full
                     reads[rp] = "ALL"
             elif btype == "tool_result":
-                if b.get("tool_use_id") in bash_ids:
-                    t = _tool_result_text(b)
-                    if t:
-                        bash_outputs.append(t)
+                tid = b.get("tool_use_id")
+                if tid in bash_cmd:
+                    bash_calls.append((bash_cmd[tid], _tool_result_text(b)))
         if role_of(entry) == "assistant":
             txt = "".join(
                 b.get("text", "")
@@ -306,7 +307,7 @@ def collect(transcript_path, cwd):
                 answer_parts.append(txt)
 
     last_assistant_text = "\n".join(answer_parts)
-    return reads, bash_outputs, last_assistant_text
+    return reads, bash_calls, last_assistant_text
 
 
 def line_was_read(reads, rp, line):
@@ -342,66 +343,85 @@ def read_cited_text(path, start, end):
     return "\n".join(lines[lo - 1:hi])
 
 
-# A footnote whose leading atom is a Bash citation: its backticked output spans
-# are checked against the session's recorded Bash output.
+# A footnote whose leading atom is a Bash citation: its command is matched
+# against the session's recorded Bash calls (command presence).
 _BASH_ATOM_RE = re.compile(r"^\s*Bash\s*\(")
 
 
-def _bash_output_portion(body):
-    """The part of a Bash footnote AFTER the Bash(<cmd>) atom — its output
-    description. Backticks INSIDE the command are not claimed output, so skip
-    them by finding the matching close paren of Bash(. Falls back to the whole
-    body if the parens are unbalanced."""
+def _bash_paren_span(body):
+    """(open_index, close_index) of the OUTER Bash(...) parens, or (None, None)
+    if not a balanced Bash atom. Balanced scan so a command containing parens
+    (subshells, $(...)) is handled."""
     open_i = body.find("(")
     if open_i == -1:
-        return body
+        return None, None
     depth = 0
     for j in range(open_i, len(body)):
-        c = body[j]
-        if c == "(":
+        if body[j] == "(":
             depth += 1
-        elif c == ")":
+        elif body[j] == ")":
             depth -= 1
             if depth == 0:
-                return body[j + 1:]
-    return body
+                return open_i, j
+    return None, None
 
 
-def _classify_recorded(body, bash_outputs):
-    """Tier a non-filesystem footnote. Bash footnotes get verbatim-quote checking
-    against recorded output; everything else (Web/Task/MCP/Grep/Glob/context) is
-    'asserted'. Returns (tier, finding_or_None)."""
+def _normalize_cmd(s):
+    """Collapse whitespace runs to single spaces and strip, so cosmetic spacing
+    differences never cause a false command-not-found."""
+    return " ".join(s.split())
+
+
+def _cited_command(body):
+    """The command text inside the outer Bash(...) of a footnote body, with any
+    wrapping backticks removed and whitespace normalized. '' if not a Bash atom."""
+    open_i, close_i = _bash_paren_span(body)
+    if open_i is None:
+        return ""
+    inner = body[open_i + 1:close_i].strip().strip("`").strip()
+    return _normalize_cmd(inner)
+
+
+def _classify_recorded(body, bash_calls):
+    """Tier a non-filesystem footnote.
+
+    A Bash footnote is verified by COMMAND PRESENCE: the cited command must match
+    a command actually run this session (cited text, normalized, is a substring of
+    a recorded command). The verifier then surfaces that command's recorded output;
+    the model never transcribes output, so there is no output-mismatch failure.
+    Everything else (Web/Task/MCP/Grep/Glob/context) is 'asserted'.
+
+    Returns (tier, finding_or_None, detail_or_None), where detail for a
+    call-verified Bash citation is (n_runs, latest_output)."""
     if not _BASH_ATOM_RE.match(body):
-        return "asserted", None
-    spans = BACKTICK_SPAN.findall(_bash_output_portion(body))
-    if not spans:
-        return "asserted", None  # nothing claimed verbatim
-    missing = [sp for sp in spans if not any(sp in out for out in bash_outputs)]
-    if missing:
-        return "BASH_OUTPUT_MISMATCH", (
-            "BASH_OUTPUT_MISMATCH",
-            "%s — quoted output not found in this session's recorded Bash "
-            "output: %r (stale quote, misquote, or resumed session)"
-            % (body, missing[0]),
-        )
-    return "output-verified", None
+        return "asserted", None, None
+    cited = _cited_command(body)
+    if not cited:
+        return "asserted", None, None
+    outs = [out for (cmd, out) in bash_calls if cited in _normalize_cmd(cmd)]
+    if not outs:
+        return "command-not-found", (
+            "command-not-found",
+            "%s — no Bash call with this command was recorded this session "
+            "(misquoted command, or it ran in a different/resumed session)" % body,
+        ), None
+    return "call-verified", None, (len(outs), outs[-1])
 
 
 def _tally(cited):
     """Count citation tiers for the trust summary."""
-    tiers = [t for _, t in cited]
-    fail = {"FABRICATED", "BAD_LINE", "UNREAD_FILE", "UNREAD_LINE"}
-    mismatch = {"CONTENT_MISMATCH", "BASH_OUTPUT_MISMATCH"}
+    tiers = [c[1] for c in cited]
+    fail = {"FABRICATED", "BAD_LINE", "UNREAD_FILE", "UNREAD_LINE", "command-not-found"}
     return {
         "pointer_verified": tiers.count("pointer-verified"),
-        "output_verified": tiers.count("output-verified"),
+        "call_verified": tiers.count("call-verified"),
         "asserted": tiers.count("asserted"),
         "failed": sum(1 for t in tiers if t in fail),
-        "mismatched": sum(1 for t in tiers if t in mismatch),
+        "mismatched": tiers.count("CONTENT_MISMATCH"),
     }
 
 
-def verify(text, reads, bash_outputs, cwd):
+def verify(text, reads, bash_calls, cwd):
     """Verify ONLY the footnote definitions — the authoritative citation list.
 
     Each footnote is judged by its LEADING atom:
@@ -409,14 +429,15 @@ def verify(text, reads, bash_outputs, cwd):
         the session reads; if its pointer holds and it backticks line content,
         that span is checked against the cited line/range (CONTENT_MISMATCH on a
         miss) — see Task 4.
-      - a Bash atom has its backticked output spans checked against the union of
-        recorded Bash outputs (output-verified / BASH_OUTPUT_MISMATCH).
+      - a Bash atom is checked by command presence against the session's recorded
+        Bash calls (call-verified / command-not-found); the verifier renders the
+        recorded output, the model does not transcribe it.
       - anything else is "asserted".
     Spans the author did not backtick are never checked, so paraphrase never
     false-positives.
     """
     findings = []  # (code, message)
-    cited = []     # (display, tier) per footnote, in order, de-duplicated
+    cited = []     # (display, tier, detail) per footnote, in order, de-duplicated
     seen = set()
 
     for cm in CITE_FULL_RE.finditer(text or ""):
@@ -426,10 +447,10 @@ def verify(text, reads, bash_outputs, cwd):
             if body in seen:
                 continue
             seen.add(body)
-            tier, finding = _classify_recorded(body, bash_outputs)
+            tier, finding, detail = _classify_recorded(body, bash_calls)
             if finding:
                 findings.append(finding)
-            cited.append((body, tier))
+            cited.append((body, tier, detail))
             continue
 
         atom = m.group(0)
@@ -448,7 +469,7 @@ def verify(text, reads, bash_outputs, cwd):
                  f"{atom} — no such file found "
                  f"(checked cwd, git root, and read files)")
             )
-            cited.append((atom, "FABRICATED"))
+            cited.append((atom, "FABRICATED", None))
             continue
 
         if line is not None:
@@ -459,7 +480,7 @@ def verify(text, reads, bash_outputs, cwd):
                      f"{atom} — file now has only {n} lines "
                      f"(stale citation, or wrong line)")
                 )
-                cited.append((atom, "BAD_LINE"))
+                cited.append((atom, "BAD_LINE", None))
                 continue
 
         rp = os.path.realpath(abspath)
@@ -477,7 +498,7 @@ def verify(text, reads, bash_outputs, cwd):
             )
 
         if len(findings) != before:
-            cited.append((atom, findings[-1][0]))  # pointer failure
+            cited.append((atom, findings[-1][0], None))  # pointer failure
             continue
 
         # Pointer holds. Opt-in content check: if the footnote backticks the cited
@@ -493,9 +514,9 @@ def verify(text, reads, bash_outputs, cwd):
                          f"{atom} — quoted content not found at the cited "
                          f"line/range: {missing[0]!r}")
                     )
-                    cited.append((atom, "CONTENT_MISMATCH"))
+                    cited.append((atom, "CONTENT_MISMATCH", None))
                     continue
-        cited.append((atom, "pointer-verified"))
+        cited.append((atom, "pointer-verified", None))
 
     stats = _tally(cited)
 
@@ -504,20 +525,32 @@ def verify(text, reads, bash_outputs, cwd):
     return findings, stats, cited
 
 
+def _render_output(n_runs, output, max_lines=12, max_chars=800):
+    """An indented block showing recorded Bash output in the verifier's own
+    report. The verifier is the SOURCE of this text (not the model), so trimming
+    is safe and is never a 'mismatch'."""
+    trimmed = output if len(output) <= max_chars else output[-max_chars:]
+    rows = trimmed.splitlines() or [""]
+    if len(rows) > max_lines:
+        rows = ["…(earlier output trimmed)"] + rows[-max_lines:]
+    head = ("ran %d×; latest output:" % n_runs) if n_runs > 1 else "recorded output:"
+    return "\n".join(["      " + head] + ["      | " + r for r in rows])
+
+
 def summary_line(stats):
-    """Honest one-line trust summary. 'pointer-verified'/'output-verified' mean
-    the pointer/quote holds — NOT that the claim's prose is correct."""
+    """Honest one-line trust summary. 'pointer-verified'/'call-verified' mean
+    the pointer/command holds — NOT that the claim's prose is correct."""
     parts = []
     if stats.get("pointer_verified"):
         parts.append("%d pointer-verified" % stats["pointer_verified"])
-    if stats.get("output_verified"):
-        parts.append("%d output-verified" % stats["output_verified"])
+    if stats.get("call_verified"):
+        parts.append("%d call-verified" % stats["call_verified"])
     if stats.get("asserted"):
         parts.append("%d asserted (unchecked)" % stats["asserted"])
     if stats.get("failed"):
         parts.append("%d failed" % stats["failed"])
     if stats.get("mismatched"):
-        parts.append("%d content/output mismatch" % stats["mismatched"])
+        parts.append("%d content mismatch" % stats["mismatched"])
     if not parts:
         return ""
     return "Citations: " + " · ".join(parts)
@@ -530,13 +563,15 @@ def report(findings, stats=None, cited=None):
         if s:
             lines.append(s)
     if LIST_CITATIONS and cited:
-        # List only pointer-verified citations. Asserted (unchecked) items are
-        # omitted as noise; failed citations are omitted here because they already
-        # appear, with their reason, in the "Grounding check:" section below. The
-        # summary line above still carries the counts for every tier.
-        for atom, tier in cited:
-            if tier in ("pointer-verified", "output-verified"):
+        # List only pointer-verified and call-verified citations. Asserted
+        # (unchecked) items are omitted as noise; failed citations are omitted here
+        # because they already appear, with their reason, in the "Grounding check:"
+        # section below. The summary line above still carries the counts for every tier.
+        for atom, tier, detail in cited:
+            if tier in ("pointer-verified", "call-verified"):
                 lines.append("  ✓ %s  [%s]" % (atom, tier))
+                if detail:
+                    lines.append(_render_output(*detail))
     if findings:
         lines.append("Grounding check:")
         for code, msg in findings:
@@ -636,8 +671,8 @@ def main():
     # half-written fragment (see wait_for_stable_transcript).
     wait_for_stable_transcript(transcript_path)
 
-    reads, bash_outputs, text = collect(transcript_path, cwd)
-    findings, stats, cited = verify(text, reads, bash_outputs, cwd)
+    reads, bash_calls, text = collect(transcript_path, cwd)
+    findings, stats, cited = verify(text, reads, bash_calls, cwd)
     blocking = [f for f in findings if f[0] in BLOCK_CODES]
 
     block, note = should_block(session_id, stop_active, blocking)

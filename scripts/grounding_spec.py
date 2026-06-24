@@ -55,7 +55,7 @@ TOOLS = [
     Tool("NotebookEdit", FS, None,                 False, "all",    None),  # touch-tracked only
     Tool("Grep",      FS, "Grep(pattern)",         False, None,     "a search re-runnable over the project files"),
     Tool("Glob",      FS, "Glob(pattern)",         False, None,     "a filename match over the project files"),
-    Tool("Bash",      RECORDED, "Bash(<exact command>)", False, None, "+ the output"),
+    Tool("Bash",      RECORDED, "Bash(<exact command>)", False, None, "the exact command (the verifier supplies the output)"),
     Tool("WebFetch",  RECORDED, "WebFetch(<url>)",       False, None, "+ what the page said"),
     Tool("WebSearch", RECORDED, "WebSearch(<query>)",    False, None, "+ the result you used"),
     Tool("Task",      RECORDED, "Task(<subagent>)",      False, None, "+ what it reported"),
@@ -225,10 +225,11 @@ but it is NOT safely or deterministically re-runnable. Cite the call AND show
 the relevant output you actually got:
 %%RECORDED_LIST%%
 
-For a Bash citation, wrap the exact output you are claiming in backticks (the
-output, not the command); the verifier confirms each backticked span is a
-verbatim substring of the recorded output (output-verified). Prose you do not
-backtick is never checked.
+For a Bash citation, cite the exact COMMAND you ran (the command, not the output)
+— e.g. Bash(npm test) — with an optional " — note" after it for the reader. Do
+NOT paste the output: the verifier confirms the command actually ran this session
+(call-verified) and shows the real recorded output itself, so any output you
+would have typed is redundant and unchecked.
 
 VERIFIABLE / conversation — recorded in the session transcript (the JSONL on
 disk at transcript_path, which the hook already reads), so it is checkable by

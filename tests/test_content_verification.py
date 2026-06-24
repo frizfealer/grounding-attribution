@@ -45,12 +45,12 @@ def _write_transcript(rows):
     return path
 
 
-class TestCollectBashOutputs(unittest.TestCase):
+class TestCollectBashCalls(unittest.TestCase):
     def setUp(self):
         self.mod = _load_verifier()
 
-    def test_collects_bash_tool_result_output(self):
-        """Should return the text of each Bash tool_result as bash_outputs."""
+    def test_pairs_bash_command_with_its_output(self):
+        """Should return each Bash call as a (command, output) pair."""
         rows = [
             {"type": "assistant", "message": {"role": "assistant", "content": [
                 {"type": "tool_use", "id": "b1", "name": "Bash",
@@ -61,14 +61,15 @@ class TestCollectBashOutputs(unittest.TestCase):
         ]
         tr = _write_transcript(rows)
         try:
-            reads, bash_outputs, text = self.mod.collect(tr, REPO)
+            reads, bash_calls, text = self.mod.collect(tr, REPO)
         finally:
             os.remove(tr)
-        self.assertEqual(len(bash_outputs), 1)
-        self.assertIn("Ran 5 tests in 0.523s", bash_outputs[0])
+        self.assertEqual(len(bash_calls), 1)
+        self.assertEqual(bash_calls[0][0], "npm test")
+        self.assertIn("Ran 5 tests in 0.523s", bash_calls[0][1])
 
     def test_ignores_non_bash_tool_results(self):
-        """Should not collect tool_results whose tool_use was not Bash."""
+        """Should not record a non-Bash tool_use as a Bash call."""
         rows = [
             {"type": "assistant", "message": {"role": "assistant", "content": [
                 {"type": "tool_use", "id": "r1", "name": "Read",
@@ -79,13 +80,13 @@ class TestCollectBashOutputs(unittest.TestCase):
         ]
         tr = _write_transcript(rows)
         try:
-            reads, bash_outputs, text = self.mod.collect(tr, REPO)
+            reads, bash_calls, text = self.mod.collect(tr, REPO)
         finally:
             os.remove(tr)
-        self.assertEqual(bash_outputs, [])
+        self.assertEqual(bash_calls, [])
 
-    def test_collects_list_of_text_parts_output(self):
-        """Should join list-of-text-parts tool_result content into bash_outputs."""
+    def test_joins_list_of_text_parts_output(self):
+        """Should join list-of-text-parts tool_result content into the output."""
         rows = [
             {"type": "assistant", "message": {"role": "assistant", "content": [
                 {"type": "tool_use", "id": "b2", "name": "Bash",
@@ -96,65 +97,72 @@ class TestCollectBashOutputs(unittest.TestCase):
         ]
         tr = _write_transcript(rows)
         try:
-            reads, bash_outputs, text = self.mod.collect(tr, REPO)
+            reads, bash_calls, text = self.mod.collect(tr, REPO)
         finally:
             os.remove(tr)
-        self.assertEqual(bash_outputs, ["hi there"])
+        self.assertEqual(bash_calls, [("echo hi", "hi there")])
 
 
-class TestVerifyBashOutput(unittest.TestCase):
+class TestVerifyBashCall(unittest.TestCase):
     def setUp(self):
         self.mod = _load_verifier()
 
-    def _verify(self, body, bash_outputs):
+    def _verify(self, body, bash_calls):
         text = "A claim `[1]`.\n\n`[1]` " + body
-        return self.mod.verify(text, {}, bash_outputs, REPO)
+        return self.mod.verify(text, {}, bash_calls, REPO)
 
-    def test_output_verified_when_span_present(self):
-        """Should tier a Bash citation output-verified when the span is a
-        substring of recorded output."""
+    def test_call_verified_when_command_recorded(self):
+        """Should tier a Bash citation call-verified when the command ran."""
         findings, stats, cited = self._verify(
-            "Bash(npm test) — `Ran 5 tests`", ["Ran 5 tests in 0.523s\nOK"])
-        self.assertIn(("Bash(npm test) — `Ran 5 tests`", "output-verified"), cited)
-        self.assertEqual(stats["output_verified"], 1)
-        self.assertFalse([f for f in findings if f[0] == "BASH_OUTPUT_MISMATCH"])
+            "Bash(npm test) — all pass", [("npm test", "Ran 5 tests\nOK")])
+        self.assertEqual(stats["call_verified"], 1)
+        self.assertEqual(cited[0][:2], ("Bash(npm test) — all pass", "call-verified"))
+        self.assertEqual(cited[0][2], (1, "Ran 5 tests\nOK"))
+        self.assertFalse(findings)
 
-    def test_mismatch_when_span_absent(self):
-        """Should flag BASH_OUTPUT_MISMATCH (warn) when the span is absent."""
+    def test_command_not_found_when_absent(self):
+        """Should flag command-not-found (warn) when no such command ran."""
         findings, stats, cited = self._verify(
-            "Bash(npm test) — `Ran 9 tests`", ["Ran 5 tests in 0.523s\nOK"])
-        self.assertIn("BASH_OUTPUT_MISMATCH", [f[0] for f in findings])
-        self.assertEqual(stats["mismatched"], 1)
-        self.assertIn(("Bash(npm test) — `Ran 9 tests`", "BASH_OUTPUT_MISMATCH"), cited)
+            "Bash(rm -rf /) — done", [("npm test", "OK")])
+        self.assertIn("command-not-found", [f[0] for f in findings])
+        self.assertEqual(stats["failed"], 1)
+        self.assertEqual(cited[0][1], "command-not-found")
 
-    def test_asserted_when_no_backticks(self):
-        """Should leave a Bash citation asserted when nothing is backticked."""
+    def test_substring_of_recorded_command_matches(self):
+        """Should match when the cited command is a substring of a longer run."""
         findings, stats, cited = self._verify(
-            "Bash(npm test) — all tests pass", ["Ran 5 tests"])
-        self.assertIn(("Bash(npm test) — all tests pass", "asserted"), cited)
+            "Bash(uv run python tests/x.py) — green",
+            [("uv run python tests/x.py 2>&1 | tail -3", "OK")])
+        self.assertEqual(stats["call_verified"], 1)
+
+    def test_backticked_command_atom_matches(self):
+        """Should strip backticks inside Bash(...) before matching."""
+        findings, stats, cited = self._verify(
+            "Bash(`ls scripts`) — listing", [("ls scripts", "a.py\nb.py")])
+        self.assertEqual(stats["call_verified"], 1)
+
+    def test_multi_run_shows_latest_with_count(self):
+        """Should report the run count and the latest output when a command ran
+        more than once."""
+        findings, stats, cited = self._verify(
+            "Bash(git status) — clean",
+            [("git status", "dirty"), ("git status", "nothing to commit")])
+        self.assertEqual(stats["call_verified"], 1)
+        self.assertEqual(cited[0][2], (2, "nothing to commit"))
+
+    def test_backticked_prose_never_causes_mismatch(self):
+        """Should not flag anything for backticked output prose — there is no
+        output tier anymore."""
+        findings, stats, cited = self._verify(
+            "Bash(npm test) — saw `9 passing`", [("npm test", "5 passing")])
+        self.assertEqual(stats["call_verified"], 1)
+        self.assertEqual([f for f in findings], [])
+
+    def test_non_bash_recorded_is_asserted(self):
+        """Should leave a non-Bash recorded citation asserted."""
+        findings, stats, cited = self._verify("WebFetch(http://x) — said hi", [])
+        self.assertEqual(cited[0][1], "asserted")
         self.assertEqual(stats["asserted"], 1)
-
-    def test_exact_substring_semantics(self):
-        """Should treat `0.5s` as absent from `0.523s` (no fuzzy match)."""
-        findings, stats, cited = self._verify("Bash(t) — `0.5s`", ["ran in 0.523s"])
-        self.assertIn("BASH_OUTPUT_MISMATCH", [f[0] for f in findings])
-        self.assertEqual(stats["mismatched"], 1)
-
-    def test_backticked_command_is_not_checked_as_output(self):
-        """Should ignore backticks INSIDE Bash(...) — only the output portion is
-        checked, so backticking the command does not cause a false mismatch."""
-        body = "Bash(`find . -type f | head`) — output includes `worker.py`"
-        findings, stats, cited = self._verify(body, ["./worker.py\n./strategist.py\n"])
-        self.assertIn((body, "output-verified"), cited)
-        self.assertEqual(stats["output_verified"], 1)
-        self.assertEqual([f for f in findings if f[0] == "BASH_OUTPUT_MISMATCH"], [])
-
-    def test_output_misquote_still_flags_with_backticked_command(self):
-        """Should still flag a real OUTPUT misquote even when the command is
-        backticked (the output portion is what gets checked)."""
-        findings, stats, cited = self._verify(
-            "Bash(`ls`) — output includes `nope.py`", ["worker.py\n"])
-        self.assertIn("BASH_OUTPUT_MISMATCH", [f[0] for f in findings])
 
 
 class TestVerifyFileContent(unittest.TestCase):
@@ -255,52 +263,67 @@ class TestReportingTiers(unittest.TestCase):
     def setUp(self):
         self.mod = _load_verifier()
 
-    def test_summary_includes_output_verified(self):
-        """Should show an output-verified count in the summary line."""
-        self.assertIn("2 output-verified",
-                      self.mod.summary_line({"output_verified": 2}))
+    def test_summary_includes_call_verified(self):
+        """Should show a call-verified count in the summary line."""
+        self.assertIn("2 call-verified",
+                      self.mod.summary_line({"call_verified": 2}))
 
-    def test_summary_includes_mismatched(self):
-        """Should show a content/output mismatch count in the summary line."""
-        self.assertIn("1 content/output mismatch",
+    def test_summary_includes_content_mismatch(self):
+        """Should show a content mismatch count in the summary line."""
+        self.assertIn("1 content mismatch",
                       self.mod.summary_line({"mismatched": 1}))
 
-    def test_report_lists_output_verified_citation(self):
-        """Should list output-verified citations alongside pointer-verified."""
+    def test_report_renders_recorded_output(self):
+        """Should print the recorded output beneath a call-verified citation."""
         out = self.mod.report(
-            [], {"output_verified": 1},
-            [("Bash(npm test) — `OK`", "output-verified")])
-        self.assertIn("output-verified", out)
-        self.assertIn("Bash(npm test) — `OK`", out)
+            [], {"call_verified": 1},
+            [("Bash(npm test) — pass", "call-verified", (1, "Ran 5 tests\nOK"))])
+        self.assertIn("call-verified", out)
+        self.assertIn("Ran 5 tests", out)
+        self.assertIn("OK", out)
 
-    def test_mismatch_surfaces_as_warning(self):
-        """Should list BASH_OUTPUT_MISMATCH under Grounding check with a warn mark."""
+    def test_report_shows_run_count_when_multiple(self):
+        """Should note the run count when a command ran more than once."""
         out = self.mod.report(
-            [("BASH_OUTPUT_MISMATCH", "Bash(x) — `y` not found")],
-            {"mismatched": 1}, [("Bash(x) — `y`", "BASH_OUTPUT_MISMATCH")])
+            [], {"call_verified": 1},
+            [("Bash(git status) — clean", "call-verified", (3, "clean"))])
+        self.assertIn("ran 3", out)
+
+    def test_command_not_found_surfaces_as_warning(self):
+        """Should list command-not-found under Grounding check with a warn mark."""
+        out = self.mod.report(
+            [("command-not-found", "Bash(x) — not recorded")],
+            {"failed": 1}, [("Bash(x)", "command-not-found", None)])
         self.assertIn("Grounding check:", out)
-        self.assertIn("BASH_OUTPUT_MISMATCH", out)
+        self.assertIn("command-not-found", out)
         self.assertIn("[!]", out)  # warn, not [X]
 
-    def test_new_codes_are_warn_only_by_default(self):
-        """Should keep the new codes out of BLOCK_CODES."""
+    def test_new_code_is_warn_only_by_default(self):
+        """Should keep command-not-found out of BLOCK_CODES."""
+        self.assertNotIn("command-not-found", self.mod.BLOCK_CODES)
         self.assertNotIn("CONTENT_MISMATCH", self.mod.BLOCK_CODES)
-        self.assertNotIn("BASH_OUTPUT_MISMATCH", self.mod.BLOCK_CODES)
 
 
 class TestPolicyText(unittest.TestCase):
-    def test_policy_mentions_backtick_convention(self):
-        """Should document the verbatim-quote (backtick) convention in the policy."""
+    def test_policy_tells_model_to_cite_command_not_output(self):
+        """Should tell the model to cite the exact command, not the output."""
         policy = grounding_spec.render_policy()
-        self.assertIn("backtick", policy.lower())
-        self.assertIn("output-verified", policy)
+        self.assertIn("the command, not the output", policy)
 
-    def test_policy_cites_injected_memory_as_context_not_read(self):
-        """Should tell the model to cite injected memory as context, not Read()."""
+    def test_policy_has_no_output_verified_tier(self):
+        """Should not mention the removed output-verified tier."""
+        self.assertNotIn("output-verified", grounding_spec.render_policy())
+
+    def test_policy_still_cites_injected_memory_as_context(self):
+        """Should keep telling the model to cite injected memory as context."""
         policy = grounding_spec.render_policy()
-        # injected memory is context-grade: it was not read from disk this turn
         self.assertIn("injected", policy.lower())
         self.assertIn("context — memory", policy)
+
+    def test_policy_keeps_read_backtick_convention(self):
+        """Should keep the optional backtick line-content check for Read."""
+        policy = grounding_spec.render_policy()
+        self.assertIn("backtick", policy.lower())  # Read content tier survives
 
 
 if __name__ == "__main__":
