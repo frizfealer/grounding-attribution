@@ -178,9 +178,9 @@ class TestCitationListing(unittest.TestCase):
         findings = [("FABRICATED", "Read(missing.py:1) — no such file found")]
         stats = {"pointer_verified": 1, "asserted": 1, "failed": 1}
         cited = [
-            ("Read(a.py:1)", "pointer-verified"),
-            ("Bash(git push)", "asserted"),
-            ("Read(missing.py:1)", "FABRICATED"),
+            ("Read(a.py:1)", "pointer-verified", None),
+            ("Bash(git push)", "asserted", None),
+            ("Read(missing.py:1)", "FABRICATED", None),
         ]
         out = self.mod.report(findings, stats, cited)
 
