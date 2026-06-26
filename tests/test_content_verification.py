@@ -116,7 +116,7 @@ class TestVerifyBashCall(unittest.TestCase):
         findings, stats, cited = self._verify(
             "Bash(npm test) — all pass", [("npm test", "Ran 5 tests\nOK")])
         self.assertEqual(stats["call_verified"], 1)
-        self.assertEqual(cited[0][:2], ("Bash(npm test) — all pass", "call-verified"))
+        self.assertEqual(cited[0][:2], ("Bash(npm test)", "call-verified"))
         self.assertEqual(cited[0][2], (1, "Ran 5 tests\nOK"))
         self.assertFalse(findings)
 
@@ -163,6 +163,28 @@ class TestVerifyBashCall(unittest.TestCase):
         findings, stats, cited = self._verify("WebFetch(http://x) — said hi", [])
         self.assertEqual(cited[0][1], "asserted")
         self.assertEqual(stats["asserted"], 1)
+
+    def test_ambiguous_when_slice_matches_two_distinct_commands(self):
+        """Should flag AMBIGUOUS_COMMAND (warn) when the cited slice is a
+        substring of two different commands run this session, and not count it
+        as call-verified."""
+        findings, stats, cited = self._verify(
+            "Bash(git) — did git things",
+            [("git status", "clean"), ("git commit -m x", "done")])
+        self.assertIn("AMBIGUOUS_COMMAND", [f[0] for f in findings])
+        self.assertEqual(stats["ambiguous"], 1)
+        self.assertEqual(stats["call_verified"], 0)
+        self.assertEqual(cited[0][1], "ambiguous-command")
+
+    def test_repeated_same_command_is_not_ambiguous(self):
+        """Should stay call-verified (not ambiguous) when the SAME command ran
+        more than once — that is one distinct command."""
+        findings, stats, cited = self._verify(
+            "Bash(git status) — clean",
+            [("git status", "dirty"), ("git status", "clean")])
+        self.assertEqual(stats["call_verified"], 1)
+        self.assertEqual(stats.get("ambiguous", 0), 0)
+        self.assertNotIn("AMBIGUOUS_COMMAND", [f[0] for f in findings])
 
 
 class TestVerifyFileContent(unittest.TestCase):
@@ -293,6 +315,10 @@ class TestReportingTiers(unittest.TestCase):
         self.assertIn("1 content mismatch",
                       self.mod.summary_line({"mismatched": 1}))
 
+    def test_summary_includes_ambiguous(self):
+        """Should show an ambiguous count in the summary line."""
+        self.assertIn("1 ambiguous", self.mod.summary_line({"ambiguous": 1}))
+
     def test_report_renders_recorded_output(self):
         """Should print the recorded output beneath a call-verified citation."""
         out = self.mod.report(
@@ -322,6 +348,7 @@ class TestReportingTiers(unittest.TestCase):
         """Should keep command-not-found out of BLOCK_CODES."""
         self.assertNotIn("command-not-found", self.mod.BLOCK_CODES)
         self.assertNotIn("CONTENT_MISMATCH", self.mod.BLOCK_CODES)
+        self.assertNotIn("AMBIGUOUS_COMMAND", self.mod.BLOCK_CODES)
 
 
 class TestPolicyText(unittest.TestCase):

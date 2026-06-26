@@ -35,6 +35,7 @@ default is warn-only — nothing blocks until you opt a code in):
   UNREAD_LINE  opened the file but never the cited line range
   NO_CITATIONS substantial answer with zero [Source: ...] tags
   command-not-found  cited a Bash command not run this session (warn-only)
+  AMBIGUOUS_COMMAND  cited Bash slice matched 2+ distinct commands (warn-only)
 
 A blocking finding tells Claude it claimed a checkable source that does not
 check out, and the hook forces a fix. Warnings are reported and allowed (e.g. a
@@ -466,18 +467,30 @@ def _check_bash_atom(atom_text, bash_calls):
     the command inside Bash(...) must be a substring of a command actually run
     this session. detail for a call-verified citation is (n_runs, latest_output);
     the verifier renders that output, the model never transcribes it. Backtick
-    spans after a Bash atom are description, not output — never checked."""
+    spans after a Bash atom are description, not output — never checked.
+
+    A slice that is a substring of TWO OR MORE distinct commands run this session
+    cannot identify which run it refers to, so it is flagged AMBIGUOUS_COMMAND
+    (warn-only) instead of call-verified — cite a longer, distinctive slice. The
+    SAME command run repeatedly is one distinct command, not ambiguous."""
     cited = _cited_command(atom_text)
     if not cited:
         return "asserted", None, None
-    outs = [out for (cmd, out) in bash_calls if cited in _normalize_cmd(cmd)]
-    if not outs:
+    matches = [(cmd, out) for (cmd, out) in bash_calls if cited in _normalize_cmd(cmd)]
+    if not matches:
         return "command-not-found", (
             "command-not-found",
             "%s — no Bash call with this command was recorded this session "
             "(misquoted command, or it ran in a different/resumed session)"
             % atom_text), None
-    return "call-verified", None, (len(outs), outs[-1])
+    distinct = {_normalize_cmd(cmd) for (cmd, _out) in matches}
+    if len(distinct) >= 2:
+        return "ambiguous-command", (
+            "AMBIGUOUS_COMMAND",
+            "%s — this slice is a substring of %d different commands run this "
+            "session, so it cannot identify which run it refers to; cite a "
+            "longer, distinctive slice" % (atom_text, len(distinct))), None
+    return "call-verified", None, (len(matches), matches[-1][1])
 
 
 def _tally(cited):
@@ -490,6 +503,7 @@ def _tally(cited):
         "asserted": tiers.count("asserted"),
         "failed": sum(1 for t in tiers if t in fail),
         "mismatched": tiers.count("CONTENT_MISMATCH"),
+        "ambiguous": tiers.count("ambiguous-command"),
     }
 
 
@@ -581,6 +595,8 @@ def summary_line(stats):
         parts.append("%d failed" % stats["failed"])
     if stats.get("mismatched"):
         parts.append("%d content mismatch" % stats["mismatched"])
+    if stats.get("ambiguous"):
+        parts.append("%d ambiguous" % stats["ambiguous"])
     if not parts:
         return ""
     return "Citations: " + " · ".join(parts)

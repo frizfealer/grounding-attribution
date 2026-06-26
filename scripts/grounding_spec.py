@@ -244,6 +244,8 @@ VERIFIABLE / filesystem-checkable — the effect is on disk, re-readable NOW:
   Class.attr form, or a wrong file/range is reported as CONTENT_MISMATCH even
   when the claim is true. When unsure, drop the backticks: Read(path:line) with
   plain prose is checked on file+line only.
+  If you edited the file this turn, its line numbers shifted — recite from the
+  current file, not the pre-edit numbers you first read.
 
 VERIFIABLE / recorded-output — the call happened and you captured its result,
 but it is NOT safely or deterministically re-runnable. Cite the call AND show
@@ -254,7 +256,11 @@ For a Bash citation, cite the exact COMMAND you ran (the command, not the output
 — e.g. Bash(npm test) — with an optional " — note" after it for the reader.
 Quote it verbatim, as typed: do NOT expand shell variables, re-quote, or
 paraphrase — the command match is literal, so a rephrased command reads as
-command-not-found even though it ran. Do NOT paste the output: the verifier
+command-not-found even though it ran. The match is substring containment, so you
+MAY cite a distinctive verbatim slice of a long command instead of the whole
+thing — but never append `...` (it is not in the command), and make the slice
+distinctive: a slice that also sits inside a different command you ran is flagged
+AMBIGUOUS_COMMAND, not verified. Do NOT paste the output: the verifier
 confirms the command actually ran this session (call-verified) and shows the
 real recorded output itself, so any output you would have typed is redundant
 and unchecked.
