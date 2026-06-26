@@ -258,6 +258,26 @@ class TestVerifyFileContent(unittest.TestCase):
             os.remove(p)
         self.assertEqual(stats["pointer_verified"], 1)
 
+    def test_paraphrase_of_real_lines_is_mismatch(self):
+        """Should flag CONTENT_MISMATCH when the span is a reconstructed
+        `Class.attr` form that no single line contains verbatim, even though
+        its pieces live (on separate lines) within the cited range. Regression
+        for the real failure where `ScheduledStop.pinned` was quoted against a
+        range holding only `class ScheduledStop(BaseModel):` and
+        `pinned: bool = False`."""
+        p = self._file([
+            "class ScheduledStop(BaseModel):",
+            "    place_id: str",
+            "    pinned: bool = False",
+        ])
+        try:
+            findings, stats, cited = self._verify_citation(
+                p, "1-3", "ScheduledStop.pinned")
+        finally:
+            os.remove(p)
+        self.assertIn("CONTENT_MISMATCH", [f[0] for f in findings])
+        self.assertEqual(stats["mismatched"], 1)
+
 
 class TestReportingTiers(unittest.TestCase):
     def setUp(self):

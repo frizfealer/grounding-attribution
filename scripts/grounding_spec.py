@@ -239,6 +239,11 @@ VERIFIABLE / filesystem-checkable — the effect is on disk, re-readable NOW:
   You MAY also quote the exact cited line content in backticks for a stronger
   check — but ONLY if it is already in your context; never re-read a file just
   to quote it.
+  A backtick span is matched LITERALLY against that line: it must be a verbatim
+  slice — exact characters, correct file, current line. A paraphrase, a rebuilt
+  Class.attr form, or a wrong file/range is reported as CONTENT_MISMATCH even
+  when the claim is true. When unsure, drop the backticks: Read(path:line) with
+  plain prose is checked on file+line only.
 
 VERIFIABLE / recorded-output — the call happened and you captured its result,
 but it is NOT safely or deterministically re-runnable. Cite the call AND show
