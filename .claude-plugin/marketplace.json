@@ -5,7 +5,7 @@
   },
   "plugins": [
     {
-      "name": "grounding-attribution",
+      "name": "ground-check",
       "source": "./",
       "description": "Source-attribution injection + mechanical grounding verification."
     }

@@ -1,4 +1,4 @@
-# grounding-attribution
+# GroundCheck
 
 A **Claude Code plugin** that fights LLM hallucination by making answers
 **grounded and auditable**: every non-trivial claim must cite a
@@ -44,7 +44,7 @@ only.
 
 Local (development):
 
-    claude --plugin-dir /path/to/grounding-attribution
+    claude --plugin-dir /path/to/ground-check
 
 Or via a marketplace / GitHub repo once published (see Claude Code plugin docs).
 

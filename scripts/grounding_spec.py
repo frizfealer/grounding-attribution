@@ -389,7 +389,7 @@ def main(argv):
         elif value == "toggle":
             set_enabled(not is_enabled())
         # "" or anything else -> report current state without changing it
-        print("grounding attribution: %s" % ("on" if is_enabled() else "off"))
+        print("GroundCheck: %s" % ("on" if is_enabled() else "off"))
         return 0
     sys.stderr.write(
         "usage: grounding_spec.py [--emit-policy | --check | --set on|off|toggle]\n")
