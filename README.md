@@ -55,8 +55,11 @@ Or via a marketplace / GitHub repo once published (see Claude Code plugin docs).
 
 ## Behavior & tuning
 
-- **Warn-only by default.** Nothing blocks until you set `BLOCK_CODES` in
-  `scripts/grounding-verifier.py`, e.g. `BLOCK_CODES = {"FABRICATED"}`.
+- **Mostly warn-only.** By default only `CONTENT_MISMATCH` blocks (a backticked
+  quote that isn't a verbatim slice of the cited line); every other finding just
+  warns. Tune the blocking set via `BLOCK_CODES` in
+  `scripts/grounding-verifier.py` — `BLOCK_CODES = set()` for pure warn-only, or
+  add codes like `{"CONTENT_MISMATCH", "FABRICATED"}`.
 - When blocking is on, a **loop guard** caps forced retries
   (`MAX_FORCED_CONTINUATIONS`, default 3), stops on no-progress, and resets on a
   clean turn or after `STATE_RESET_SECONDS`. State persists in
@@ -64,6 +67,20 @@ Or via a marketplace / GitHub repo once published (see Claude Code plugin docs).
 - To change which tools are cited/checked, edit the `TOOLS` table in
   `scripts/grounding_spec.py` — policy text, citation regex, and read-tracking
   all update together.
+
+## Enable / disable
+
+The plugin ships **on**. Toggle it globally with the `/grounding` slash command:
+
+    /grounding on        # enable policy injection + verifier
+    /grounding off       # disable both (policy not injected, verifier no-ops)
+    /grounding toggle    # flip the current state
+    /grounding           # show the current state without changing it
+
+The state is a global flag file under your Claude config dir
+(`$CLAUDE_CONFIG_DIR` or `~/.claude`), so both halves agree and it persists
+across sessions until you change it. Equivalent CLI:
+`python3 scripts/grounding_spec.py --set on|off|toggle`.
 
 ## Verify / self-check
 
