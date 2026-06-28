@@ -173,13 +173,13 @@ class TestCitationListing(unittest.TestCase):
         self.mod = _load_verifier()
 
     def test_lists_only_pointer_verified_citations(self):
-        """Should list only pointer-verified citations; asserted and failed are
+        """Should list only pointer-verified citations; self-reported and failed are
         not listed (failures still surface in the Grounding check section)."""
         findings = [("FABRICATED", "Read(missing.py:1) — no such file found")]
-        stats = {"pointer_verified": 1, "asserted": 1, "failed": 1}
+        stats = {"pointer_verified": 1, "self_reported": 1, "failed": 1}
         cited = [
             ("Read(a.py:1)", "pointer-verified", None),
-            ("Bash(git push)", "asserted", None),
+            ("Bash(git push)", "self-reported", None),
             ("Read(missing.py:1)", "FABRICATED", None),
         ]
         out = self.mod.report(findings, stats, cited)
@@ -187,8 +187,8 @@ class TestCitationListing(unittest.TestCase):
         # pointer-verified IS listed
         self.assertIn("[pointer-verified]", out)
         self.assertIn("Read(a.py:1)", out)
-        # asserted is NOT listed as a citation line
-        self.assertNotIn("[asserted]", out)
+        # self-reported is NOT listed as a citation line
+        self.assertNotIn("[self-reported]", out)
         self.assertNotIn("Bash(git push)", out)
         # failed is NOT duplicated as a citation line ...
         self.assertNotIn("[FABRICATED]", out)

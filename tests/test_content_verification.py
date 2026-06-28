@@ -116,7 +116,7 @@ class TestVerifyBashCall(unittest.TestCase):
         findings, stats, cited = self._verify(
             "Bash(npm test) — all pass", [("npm test", "Ran 5 tests\nOK")])
         self.assertEqual(stats["call_verified"], 1)
-        self.assertEqual(cited[0][:2], ("Bash(npm test)", "call-verified"))
+        self.assertEqual(cited[0][:2], ("[1] Bash(npm test)", "call-verified"))
         self.assertEqual(cited[0][2], (1, "Ran 5 tests\nOK"))
         self.assertFalse(findings)
 
@@ -158,11 +158,11 @@ class TestVerifyBashCall(unittest.TestCase):
         self.assertEqual(stats["call_verified"], 1)
         self.assertEqual([f for f in findings], [])
 
-    def test_non_bash_recorded_is_asserted(self):
-        """Should leave a non-Bash recorded citation asserted."""
+    def test_non_bash_recorded_is_self_reported(self):
+        """Should tier a non-Bash recorded citation self-reported (not auto-checked)."""
         findings, stats, cited = self._verify("WebFetch(http://x) — said hi", [])
-        self.assertEqual(cited[0][1], "asserted")
-        self.assertEqual(stats["asserted"], 1)
+        self.assertEqual(cited[0][1], "self-reported")
+        self.assertEqual(stats["self_reported"], 1)
 
     def test_ambiguous_when_slice_matches_two_distinct_commands(self):
         """Should flag AMBIGUOUS_COMMAND (warn) when the cited slice is a
@@ -185,6 +185,16 @@ class TestVerifyBashCall(unittest.TestCase):
         self.assertEqual(stats["call_verified"], 1)
         self.assertEqual(stats.get("ambiguous", 0), 0)
         self.assertNotIn("AMBIGUOUS_COMMAND", [f[0] for f in findings])
+
+    def test_ambiguous_message_lists_the_colliding_commands(self):
+        """Should name the colliding commands in the message so a distinctive
+        slice is obvious without digging through the transcript."""
+        findings, stats, cited = self._verify(
+            "Bash(git) — did git things",
+            [("git status --short", "clean"), ("git commit -m wip", "done")])
+        msg = next(f[1] for f in findings if f[0] == "AMBIGUOUS_COMMAND")
+        self.assertIn("status --short", msg)
+        self.assertIn("commit -m wip", msg)
 
 
 class TestVerifyFileContent(unittest.TestCase):
@@ -243,6 +253,19 @@ class TestVerifyFileContent(unittest.TestCase):
             os.remove(p)
         self.assertEqual(stats["pointer_verified"], 1)
         self.assertFalse(findings)
+
+    def test_listing_shows_footnote_number_not_checkmark(self):
+        """Should prefix each listed citation with its [n] footnote number, replacing the checkmark."""
+        p = self._file(["def foo():", "    return 1"])
+        try:
+            findings, stats, cited = self._verify_read(p, 1, "def foo():")
+        finally:
+            os.remove(p)
+        self.assertTrue(cited[0][0].startswith("[1] "),
+                        "display should carry the footnote number: %r" % cited[0][0])
+        out = self.mod.report(findings, stats, cited)
+        self.assertIn("[1] Read(", out)
+        self.assertNotIn("✓", out)
 
     def _verify_citation(self, path, locator, quoted):
         """Verify one Read footnote with an arbitrary :locator ('2', '2-4', or '' for whole file)."""
@@ -344,10 +367,10 @@ class TestReportingTiers(unittest.TestCase):
         self.assertIn("command-not-found", out)
         self.assertIn("[!]", out)  # warn, not [X]
 
-    def test_new_code_is_warn_only_by_default(self):
-        """Should keep command-not-found out of BLOCK_CODES."""
+    def test_block_codes_policy(self):
+        """Should block CONTENT_MISMATCH while keeping the command codes warn-only."""
+        self.assertIn("CONTENT_MISMATCH", self.mod.BLOCK_CODES)
         self.assertNotIn("command-not-found", self.mod.BLOCK_CODES)
-        self.assertNotIn("CONTENT_MISMATCH", self.mod.BLOCK_CODES)
         self.assertNotIn("AMBIGUOUS_COMMAND", self.mod.BLOCK_CODES)
 
 

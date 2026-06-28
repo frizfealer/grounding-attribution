@@ -68,16 +68,18 @@ from grounding_spec import (  # noqa: E402
     CITE_FULL_RE,
     FILE_CITE,
     RANGE_TOOLS,
+    is_enabled,
 )
 
 # ---- policy -----------------------------------------------------------------
 # Which finding codes actually BLOCK Claude (force a fix) vs. merely warn.
-# Default: warn-only. Nothing blocks until you opt in — start here, watch the
-# warnings, and only promote a code to blocking once you trust it on your repo.
+# Phased rollout: start small and only promote a code to blocking once you
+# trust it on your repo. Currently blocking on CONTENT_MISMATCH alone (a backtick
+# quote that isn't a verbatim slice of the cited line); everything else warns.
 #   e.g.  BLOCK_CODES = {"FABRICATED"}   # block only on truly nonexistent files
 # Never put a code here that punishes honesty (there isn't one — unverified
 # claims are not findings at all; they pass through untouched by design).
-BLOCK_CODES = set()
+BLOCK_CODES = {"CONTENT_MISMATCH"}
 
 # When True, list each pointer-verified citation (✓ file:line) beneath the
 # summary line. Asserted (unchecked) and failed citations are NOT listed —
@@ -475,7 +477,7 @@ def _check_bash_atom(atom_text, bash_calls):
     SAME command run repeatedly is one distinct command, not ambiguous."""
     cited = _cited_command(atom_text)
     if not cited:
-        return "asserted", None, None
+        return "self-reported", None, None
     matches = [(cmd, out) for (cmd, out) in bash_calls if cited in _normalize_cmd(cmd)]
     if not matches:
         return "command-not-found", (
@@ -485,11 +487,13 @@ def _check_bash_atom(atom_text, bash_calls):
             % atom_text), None
     distinct = {_normalize_cmd(cmd) for (cmd, _out) in matches}
     if len(distinct) >= 2:
+        shown = "; ".join(c if len(c) <= 80 else c[:77] + "..." for c in sorted(distinct))
         return "ambiguous-command", (
             "AMBIGUOUS_COMMAND",
             "%s — this slice is a substring of %d different commands run this "
             "session, so it cannot identify which run it refers to; cite a "
-            "longer, distinctive slice" % (atom_text, len(distinct))), None
+            "longer, distinctive slice. Matched: %s"
+            % (atom_text, len(distinct), shown)), None
     return "call-verified", None, (len(matches), matches[-1][1])
 
 
@@ -500,7 +504,7 @@ def _tally(cited):
     return {
         "pointer_verified": tiers.count("pointer-verified"),
         "call_verified": tiers.count("call-verified"),
-        "asserted": tiers.count("asserted"),
+        "self_reported": tiers.count("self-reported"),
         "failed": sum(1 for t in tiers if t in fail),
         "mismatched": tiers.count("CONTENT_MISMATCH"),
         "ambiguous": tiers.count("ambiguous-command"),
@@ -521,7 +525,7 @@ def verify(text, reads, bash_calls, cwd):
         Bash calls (call-verified / command-not-found); the command lives inside
         its OWN parens, so trailing spans are description, never checked.
       - anything else (Web/Task/MCP/Grep/Glob, or a footnote with no atom) is
-        "asserted".
+        "self-reported".
     Spans the author did not backtick are never checked, so paraphrase never
     false-positives; and a filesystem span is only ever checked against the
     source of the atom that owns it, never a neighbour's.
@@ -531,13 +535,14 @@ def verify(text, reads, bash_calls, cwd):
     seen = set()
 
     for cm in CITE_FULL_RE.finditer(text or ""):
-        body = cm.group(1).strip()
+        num = cm.group(1)
+        body = cm.group(2).strip()
         atoms = _atoms_in(body)
         if not atoms:
-            # No atom at all (e.g. a `context — …` footnote): asserted whole.
+            # No atom at all (e.g. a `context — …` footnote): self-reported whole.
             if body not in seen:
                 seen.add(body)
-                cited.append((body, "asserted", None))
+                cited.append((body, "self-reported", None))
             continue
         spanms = list(BACKTICK_SPAN.finditer(body))
         for i, a in enumerate(atoms):
@@ -557,10 +562,10 @@ def verify(text, reads, bash_calls, cwd):
             elif a["token"] == "Bash":
                 tier, finding, detail = _check_bash_atom(display, bash_calls)
             else:                                # Web/Task/MCP/Grep/Glob/…
-                tier, finding, detail = "asserted", None, None
+                tier, finding, detail = "self-reported", None, None
             if finding:
                 findings.append(finding)
-            cited.append((display, tier, detail))
+            cited.append(("[%s] %s" % (num, display), tier, detail))
 
     stats = _tally(cited)
 
@@ -569,7 +574,7 @@ def verify(text, reads, bash_calls, cwd):
     return findings, stats, cited
 
 
-def _render_output(n_runs, output, max_lines=12, max_chars=800):
+def _render_output(n_runs, output, max_lines=3, max_chars=200):
     """An indented block showing recorded Bash output in the verifier's own
     report. The verifier is the SOURCE of this text (not the model), so trimming
     is safe and is never a 'mismatch'."""
@@ -589,8 +594,8 @@ def summary_line(stats):
         parts.append("%d pointer-verified" % stats["pointer_verified"])
     if stats.get("call_verified"):
         parts.append("%d call-verified" % stats["call_verified"])
-    if stats.get("asserted"):
-        parts.append("%d asserted (unchecked)" % stats["asserted"])
+    if stats.get("self_reported"):
+        parts.append("%d self-reported (not auto-checked)" % stats["self_reported"])
     if stats.get("failed"):
         parts.append("%d failed" % stats["failed"])
     if stats.get("mismatched"):
@@ -615,7 +620,7 @@ def report(findings, stats=None, cited=None):
         # section below. The summary line above still carries the counts for every tier.
         for atom, tier, detail in cited:
             if tier in ("pointer-verified", "call-verified"):
-                lines.append("  ✓ %s  [%s]" % (atom, tier))
+                lines.append("  %s  [%s]" % (atom, tier))
                 if detail:
                     lines.append(_render_output(*detail))
     if findings:
@@ -627,9 +632,10 @@ def report(findings, stats=None, cited=None):
 
 
 # ---- loop guard -------------------------------------------------------------
-# Independent of stop_hook_active (which is documented but known to mis-propagate
-# when system reminders interleave). State is a per-session file, so it survives
-# across the separate hook processes within a turn.
+# Deliberately does NOT consult stop_hook_active (documented but known to
+# mis-propagate when system reminders interleave); the per-session state file
+# (count + fingerprint) is the sole bound, and it survives across the separate
+# hook processes within a turn.
 MAX_FORCED_CONTINUATIONS = 3  # hard ceiling on blocks per task
 STATE_RESET_SECONDS = 600  # gap that counts as a new task -> reset
 # Persist loop-guard state in the plugin's data dir when running as a plugin
@@ -674,14 +680,13 @@ def _fingerprint(blocking):
     return hashlib.sha1(payload.encode("utf-8")).hexdigest()
 
 
-def should_block(session_id, stop_active, blocking):
-    """Decide whether to actually block, with three independent guards.
+def should_block(session_id, blocking):
+    """Decide whether to actually block, bounded by two guards (a retry ceiling
+    and a no-progress fingerprint).
     Returns (block: bool, note: str) — note explains a *declined* block."""
     if not blocking:
         _clear_state(session_id)  # clean turn -> reset the task
         return False, ""
-    if stop_active:  # honor the flag when it IS set
-        return False, "already in a forced continuation (stop_hook_active)"
 
     now = time.time()
     st = _load_state(session_id)
@@ -700,11 +705,12 @@ def should_block(session_id, stop_active, blocking):
 
 
 def main():
+    if not is_enabled():  # plugin toggled off (/grounding off) -> no checks
+        sys.exit(0)
     data = load_input()
     transcript_path = data.get("transcript_path", "")
     cwd = data.get("cwd") or os.getcwd()
     session_id = data.get("session_id", "")
-    stop_active = bool(data.get("stop_hook_active"))
     # Which event invoked us. The verifier is wired to BOTH Stop (turn end) and
     # PreToolUse/AskUserQuestion (Claude is asking the user a question — Stop does
     # NOT fire at that pause). The warn-only systemMessage is identical for both,
@@ -721,7 +727,7 @@ def main():
     findings, stats, cited = verify(text, reads, bash_calls, cwd)
     blocking = [f for f in findings if f[0] in BLOCK_CODES]
 
-    block, note = should_block(session_id, stop_active, blocking)
+    block, note = should_block(session_id, blocking)
 
     if block:
         reason = (

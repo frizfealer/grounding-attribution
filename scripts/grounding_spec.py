@@ -19,6 +19,7 @@ CLI:
   python3 grounding_spec.py --check         # self-consistency assertions
 """
 
+import os
 import re
 import sys
 
@@ -144,14 +145,18 @@ def warn(text):
 
 
 # A footnote DEFINITION line: `[1]` <atom> at line start (an optional list bullet
-# is tolerated). group(1) captures the atom. This is the authoritative citation
-# list — the verifier COUNTS these (one per distinct source) and reads each atom
-# from them. Both CITE_CHIP_RE (count) and CITE_FULL_RE (per-atom listing) are
-# this same pattern, so the count and the listing can never disagree.
+# is tolerated). group(1) captures the footnote number, group(2) the atom — one
+# pass yields both, so the verifier can label each listed citation with its number
+# without re-scanning. This is the authoritative citation list — the verifier
+# COUNTS these (one per distinct source) and reads each atom from them. Both
+# CITE_CHIP_RE (count) and CITE_FULL_RE (per-atom listing) are this same pattern,
+# so the count and the listing can never disagree.
 _MARK_PAT = re.escape(MARK_L) + r"\d+" + re.escape(MARK_R)
-FOOT_DEF_RE = re.compile(r"(?m)^[ \t]*(?:[-*+][ \t]+)?" + _MARK_PAT + r"[ \t]+(.+?)[ \t]*$")
+FOOT_DEF_RE = re.compile(r"(?m)^[ \t]*(?:[-*+][ \t]+)?"
+                         + _MARK_PAT.replace(r"\d+", r"(\d+)")
+                         + r"[ \t]+(.+?)[ \t]*$")
 CITE_CHIP_RE = FOOT_DEF_RE   # len(findall) = number of footnote definitions
-CITE_FULL_RE = FOOT_DEF_RE   # finditer -> group(1) = the cited atom
+CITE_FULL_RE = FOOT_DEF_RE   # finditer -> group(1) = number, group(2) = the cited atom
 
 # Pull the leading tool token out of a footnote definition, for trust-tiering.
 # (Defined for consistency; not imported by the verifier today.)
@@ -205,120 +210,87 @@ def render_policy():
 
 _POLICY_TEMPLATE = r"""[GROUNDING POLICY]
 
-Only one thing makes a claim checkable: a pointer to an artifact that exists
-OUTSIDE you and can be re-inspected — a file location, a command plus its
-output, or a retrieved URL. Whether a claim "feels like" memory, inference, or
-recalled context is not externally verifiable, so those are NOT grounding
-labels and must not be used as if they were.
+A claim is checkable only if it points at something OUTSIDE you that can be
+re-inspected — a file location, a command plus its output, or a retrieved URL.
+"Feels like memory / inference / recalled" is not verifiable and is NOT a
+grounding label.
 
-Sort every non-trivial claim into VERIFIABLE or UNVERIFIED. A claim is
-verifiable only if it points at evidence someone else can re-inspect. Verifiable
-evidence comes in grades, by what the source leaves behind — the tool's NAME
-doesn't matter, only whether its result can be re-inspected, so new tools and any
-mcp__server__tool slot into the same grades:
+Sort every non-trivial claim into VERIFIABLE (it points at re-inspectable
+evidence) or UNVERIFIED. The grade is set by what the source leaves behind, not
+by the tool's name — so new tools and any mcp__server__tool slot into the grades
+below:
 
-Write each citation as a numbered FOOTNOTE. At the claim, drop a tinted marker —
-an inline-code span around a bracketed number, e.g. %%CITE_MARK%% — then DEFINE
-each number once, in a short block at the END of your reply, as the number plus
-its source atom:
+Mark each claim inline with a code-span number, e.g. %%CITE_MARK%%, and DEFINE
+each number once in a block at the END of the reply, as the number plus its
+source atom (the verifier reads the LEADING atom):
     %%CITE_FOOT1%%
     %%CITE_FOOT2%%
-Reuse the SAME number for the SAME source: if two claims both rest on %%CITE_MARK%%,
-both carry %%CITE_MARK%% and it is defined once. Begin a footnote with its atom —
-the verifier reads the LEADING atom — after which a filesystem footnote may add a
-short description and a recorded-output footnote its captured output. Mark
-unverified claims inline with a yellow ⚠️ — no number,
-since they have no re-inspectable atom (shown below). The verifier reads the atom
-in each footnote regardless of styling.
+Reuse the SAME number for the SAME source and define it once. A filesystem
+footnote may add a short description; a recorded-output footnote, its output.
+Mark an unverified claim inline with ⚠️ and no number (it has no atom).
 
 VERIFIABLE / filesystem-checkable — the effect is on disk, re-readable NOW:
 %%FS_LIST%%
-  Cite a real path, a line that exists, a file you opened/changed THIS session
-  with the Read/Edit/Write tools — if grep or a search gave you the line instead,
-  that's a Grep(pattern) or Bash(<cmd>) citation, NOT Read(path:line).
-  You MAY also quote the exact cited line content in backticks for a stronger
-  check — but ONLY if it is already in your context; never re-read a file just
-  to quote it.
-  A backtick span is matched LITERALLY against that line: it must be a verbatim
-  slice — exact characters, correct file, current line. A paraphrase, a rebuilt
-  Class.attr form, or a wrong file/range is reported as CONTENT_MISMATCH even
-  when the claim is true. When unsure, drop the backticks: Read(path:line) with
-  plain prose is checked on file+line only.
-  If you edited the file this turn, its line numbers shifted — recite from the
-  current file, not the pre-edit numbers you first read.
+  Cite a real path and a line that EXISTS, in a file you opened or changed THIS
+  session with Read/Edit/Write. If grep or a search gave you the line, cite
+  Grep(pattern) or Bash(<cmd>), NOT Read(path:line). After you edit a file this
+  turn its line numbers shift — recite from the current file.
+  You MAY also quote the cited line's content in backticks for a stronger check,
+  but only if it is already in context — never re-read just to quote. A backtick
+  span is matched LITERALLY: it must be a verbatim slice (exact characters,
+  correct file, current line). A paraphrase, a rebuilt Class.attr, or a wrong
+  file/range is a CONTENT_MISMATCH even when the claim is true. When unsure, drop
+  the backticks — Read(path:line) alone is checked on file+line only.
 
-VERIFIABLE / recorded-output — the call happened and you captured its result,
-but it is NOT safely or deterministically re-runnable. Cite the call AND show
-the relevant output you actually got:
+VERIFIABLE / recorded-output — the call ran and you captured its result, but it
+is not safely re-runnable. Cite the call and show the output you got — except
+Bash, whose output the verifier supplies itself:
 %%RECORDED_LIST%%
 
-For a Bash citation, cite the exact COMMAND you ran (the command, not the output)
-— e.g. Bash(npm test) — with an optional " — note" after it for the reader.
-Quote it verbatim, as typed: do NOT expand shell variables, re-quote, or
-paraphrase — the command match is literal, so a rephrased command reads as
-command-not-found even though it ran. The match is substring containment, so you
-MAY cite a distinctive verbatim slice of a long command instead of the whole
-thing — but never append `...` (it is not in the command), and make the slice
-distinctive: a slice that also sits inside a different command you ran is flagged
-AMBIGUOUS_COMMAND, not verified. Do NOT paste the output: the verifier
-confirms the command actually ran this session (call-verified) and shows the
-real recorded output itself, so any output you would have typed is redundant
-and unchecked.
+For Bash, cite the command, not the output — the exact command, verbatim as
+typed: do not expand shell variables, re-quote, or paraphrase, or it reads as
+command-not-found.
+Matching is substring, so a distinctive verbatim slice is fine; never append
+`...`, and a slice that also sits in another command you ran is
+AMBIGUOUS_COMMAND. Do not paste the output — the verifier supplies the real
+recorded output itself.
 
-VERIFIABLE / conversation — recorded in the session transcript (the JSONL on
-disk at transcript_path, which the hook already reads), so it is checkable by
-re-reading that transcript — the same mechanism that confirms a recorded-output
-call happened, NOT a check against your source files:
+VERIFIABLE / conversation — recorded in the session transcript, checkable by
+re-reading it (NOT a check against your source files):
     %%CITE_CONTEXT%%
-Memory and project rules (CLAUDE.md at any level, or a memory store such as
-MEMORY.md) are INJECTED into your context at session start — you did NOT read
-them from disk this turn, and some may not exist on disk at all. Cite them as
-`context — memory: <fact>` (injected context), NOT Read(...). They are real
-files, so to make the citation filesystem-checkable, actually open the file with
-the Read tool this session and THEN cite Read(path:line). (A memory store
-reached over MCP is an MCP(...) citation.)
+Memory and project rules (CLAUDE.md, MEMORY.md) are INJECTED at session start —
+you did NOT read them from disk this turn, and some may not be on disk. Cite
+them as `context — memory: <fact>`, NOT Read(...). To make one filesystem-
+checkable, actually Read the file this session, then cite Read(path:line). A
+memory store reached over MCP is an MCP(...) citation.
 
 Never invent a path, line, command, output, URL, tool result, or citation.
 
-UNVERIFIED — no external artifact backs it. This is everything from your own
-weights or reasoning — recalled general knowledge, inferences, and guesses
-alike; you cannot tell those apart and must not pretend to. Mark it; never
-present it as fact:
+UNVERIFIED — nothing external backs it: recalled knowledge, inference, or guess
+(you cannot tell these apart, so present none of them as fact). Mark it:
     %%CITE_UNVERIFIED%%
-Inference is not a third source. A conclusion you REASONED to is unverified as a
-conclusion — mark it — but cite the premises you reasoned from (Read(...), etc.).
-That keeps the premises checkable even though the inference step is not, which is
-strictly more honest than a bare "inference" label that asks the reader to trust
-the leap.
-Marking a claim unverified is ENCOURAGED and costs you nothing — it is the
-honest move and is never penalized. The only thing policed is a claim dressed
-up as VERIFIED that does not check out. So when in doubt, mark it unverified
-rather than reaching for a citation you cannot stand behind. Better still: go
-read the file or run the check and turn it into VERIFIABLE.
+Inference is not a third source: a conclusion you reasoned to is unverified —
+mark it — but cite the premises (Read(...), etc.) so they stay checkable.
+Marking a claim unverified is encouraged and never penalized; the only thing
+policed is a VERIFIED claim that does not check out. When in doubt, mark it
+unverified — or better, verify it and cite that.
 
 Rules:
-1. Cite at the smallest readable unit that fully supports the claim — per
-   paragraph, bullet, table row, code change, or decision. Not per sentence.
-2. Keep the source tag adjacent to the claim it supports.
-3. For a code or doc change, cite BOTH:
-     - the trigger  (the Read / Bash / test / issue that motivated it)
-     - the check    (the Read / Bash / test result confirming it works)
-4. Number footnotes in first-use order and reuse a number whenever the source
-   atom is identical, so every distinct source is defined exactly once at the end
-   — that reuse IS the footnote system, not an extra step.
-5. If you cannot back a claim, choose by whether it is load-bearing: drop it if
-   the answer does not need it; if the answer DOES need it, keep it but mark it
-   ⚠️ unverified (never silently delete something the user needs); best of
-   all, take the step that verifies it and cite that. These do not conflict —
-   it is one rule applied to claims of different importance.
+1. Cite at the smallest unit that fully supports the claim (a paragraph, bullet,
+   row, code change, or decision — not every sentence), tag kept next to it.
+2. For a code or doc change, cite BOTH the trigger and the check that confirms it.
+3. Number footnotes in first-use order and reuse a number for an identical atom,
+   so each distinct source is defined exactly once.
+4. If you cannot back a claim: drop it if the answer does not need it; if it does,
+   keep it and mark it ⚠️ unverified (never silently delete something needed);
+   best of all, verify it and cite that.
 
 A downstream verifier re-checks your filesystem-checkable citations
-(%%CHECKED_LIST%%) against the current files and against what you
-actually opened or changed. Fabricated, out-of-range, or never-opened citations
-are flagged. By default it only WARNS; it can be configured to bounce a flagged
-citation back to you for a fix. (Grep/Glob and the transcript-checkable
-citations are not auto-checked yet — so the absence of a flag on those is not
-confirmation.) Cite only what holds.
+(%%CHECKED_LIST%%) against the current files and what you opened or changed;
+fabricated, out-of-range, or never-opened citations are flagged. It WARNS by
+default (and can be set to bounce a flag back for a fix). Grep/Glob and
+transcript citations are not auto-checked, so the absence of a flag is not
+confirmation. Cite only what holds.
 
 Trivial acknowledgments, transitions, and formatting text are exempt.
 """
@@ -343,7 +315,9 @@ def _check():
     sample_atom = "Read(f.py:1)"
     deff = footnote(1, sample_atom)
     assert FOOT_DEF_RE.search(deff), "footnote def regex fails on %r" % deff
-    assert CITE_FULL_RE.search(deff).group(1) == sample_atom, "atom capture wrong"
+    fm = CITE_FULL_RE.search(deff)
+    assert fm.group(1) == "1", "footnote number capture wrong"
+    assert fm.group(2) == sample_atom, "atom capture wrong"
     assert len(CITE_CHIP_RE.findall(deff)) == 1, "footnote not counted once"
     assert ANY_CITATION.search(mark(1)), "inline marker not detected"
     assert ANY_CITATION.search(warn("x")), "unverified warning not detected"
@@ -362,14 +336,63 @@ def _check():
           % (len(TOOLS), ",".join(CHECKED), ",".join(RANGE_TOOLS), ",".join(ALL_TOOLS)))
 
 
+# --- on/off toggle -----------------------------------------------------------
+# A global flag file (not per-session) both halves consult: the --emit-policy
+# injector emits nothing when off, and the verifier no-ops when off. Absent
+# file = enabled (the plugin's default). Lives under the Claude config dir
+# (~/.claude, or $CLAUDE_CONFIG_DIR) so the path is identical for the slash
+# command and the hooks, which run as separate processes. NOT under
+# CLAUDE_PLUGIN_DATA: that var is per-plugin-context and is not guaranteed to
+# resolve to this plugin's dir across those processes, so a write from one and
+# a read from another would miss each other and the toggle would never turn off.
+_OFF_VALUES = ("off", "0", "false", "no")
+
+
+def _flag_path():
+    base = (os.environ.get("CLAUDE_CONFIG_DIR")
+            or os.path.join(os.path.expanduser("~"), ".claude"))
+    return os.path.join(base, "grounding-attribution", "grounding-enabled")
+
+
+def is_enabled():
+    """True unless the flag file says off. Absent/unreadable file = enabled."""
+    try:
+        with open(_flag_path()) as f:
+            return f.read().strip().lower() not in _OFF_VALUES
+    except OSError:
+        return True
+
+
+def set_enabled(on):
+    """Write the global flag so both halves see the new state on their next run."""
+    path = _flag_path()
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as f:
+        f.write("on" if on else "off")
+
+
 def main(argv):
     if "--emit-policy" in argv:
-        sys.stdout.write(render_policy())
+        if is_enabled():
+            sys.stdout.write(render_policy())
         return 0
     if "--check" in argv:
         _check()
         return 0
-    sys.stderr.write("usage: grounding_spec.py [--emit-policy | --check]\n")
+    if "--set" in argv:
+        i = argv.index("--set")
+        value = argv[i + 1].strip().lower() if i + 1 < len(argv) else ""
+        if value in ("on", "enable", "enabled"):
+            set_enabled(True)
+        elif value in ("off", "disable", "disabled"):
+            set_enabled(False)
+        elif value == "toggle":
+            set_enabled(not is_enabled())
+        # "" or anything else -> report current state without changing it
+        print("grounding attribution: %s" % ("on" if is_enabled() else "off"))
+        return 0
+    sys.stderr.write(
+        "usage: grounding_spec.py [--emit-policy | --check | --set on|off|toggle]\n")
     return 2
 
 
