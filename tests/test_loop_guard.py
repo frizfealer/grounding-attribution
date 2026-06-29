@@ -1,4 +1,4 @@
-"""Tests for the loop guard (should_block) in grounding-verifier.py.
+"""Tests for the loop guard (should_block) in loop_guard.py.
 
 The guard caps forced continuations at MAX_FORCED_CONTINUATIONS using a
 per-session state file (count + fingerprint). It must reach that ceiling even on

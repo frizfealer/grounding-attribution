@@ -7,9 +7,11 @@ Tracking: [#2](https://github.com/frizfealer/ground-check/issues/2) — implemen
 ## Context & decision
 
 GroundCheck's verifier either blocks a turn (forces a fix) or merely warns, per
-the `BLOCK_CODES` set. We set `BLOCK_CODES = {"CONTENT_MISMATCH", "FABRICATED"}`
-and keep `UNREAD_FILE`, `command-not-found`, `BAD_LINE`, `AMBIGUOUS_COMMAND`, and
-`NO_CITATIONS` at warn.
+the `BLOCK_CODES` set. We ship `BLOCK_CODES = {"CONTENT_MISMATCH"}` as the
+default. `FABRICATED` meets the same ground-truth + safe-fix bar (below) and is
+*eligible* to block, but is held at warn pending further grilling of the
+loop-guard ↔ blocking coupling. `UNREAD_FILE`, `command-not-found`, `BAD_LINE`,
+`AMBIGUOUS_COMMAND`, and `NO_CITATIONS` stay at warn.
 
 The governing principle: **a finding may block only if (a) its check runs against
 stable ground truth — the filesystem — and (b) the forced fix is safe and
@@ -19,7 +21,8 @@ switched off, defeating its purpose.
 
 - `CONTENT_MISMATCH` and `FABRICATED` check the file on disk: stable, near-zero
   false-positive, and the agent can fix in place (correct the quote, drop the bad
-  citation). → block.
+  citation) — both *eligible* to block. `CONTENT_MISMATCH` is enabled by default;
+  `FABRICATED` is held at warn for now (the coupling is still being grilled).
 - `UNREAD_FILE` and `command-not-found` check a *reconstructed session log*
   (`collect()`'s `reads` / `bash_calls` sets), not disk. → warn.
 

@@ -50,10 +50,23 @@ def _load_state(session_id):
 
 
 def _save_state(session_id, state):
+    # Write to a temp file in the same dir, then os.replace() in — atomic on
+    # POSIX, so an interrupted or concurrent write can't leave a truncated state
+    # file that _load_state() would silently reset (weakening the retry ceiling).
     try:
-        os.makedirs(_state_dir(), exist_ok=True)
-        with open(_state_path(session_id), "w") as f:
-            json.dump(state, f)
+        d = _state_dir()
+        os.makedirs(d, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(dir=d, suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w") as f:
+                json.dump(state, f)
+            os.replace(tmp, _state_path(session_id))
+        except Exception:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+            raise
     except Exception:
         pass
 
