@@ -11,28 +11,17 @@ shape for the event that invoked it.
 
 Stdlib unittest only — the plugin is deliberately dependency-free.
 """
-import importlib.util
-import io
 import json
 import os
 import shutil
 import sys
 import tempfile
 import unittest
-from contextlib import redirect_stdout
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCRIPTS = os.path.join(REPO, "scripts")
-
-
-def _load_verifier():
-    """Import grounding-verifier.py fresh (hyphenated name -> load by path)."""
-    spec = importlib.util.spec_from_file_location(
-        "grounding_verifier", os.path.join(SCRIPTS, "grounding-verifier.py")
-    )
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
+sys.path.insert(0, SCRIPTS)
+import grounding_engine  # noqa: E402
 
 
 def _write_transcript(rows):
@@ -41,23 +30,6 @@ def _write_transcript(rows):
         for r in rows:
             f.write(json.dumps(r) + "\n")
     return path
-
-
-def _run_main(mod, payload):
-    """Run verifier.main() with payload on stdin; return parsed stdout JSON or None."""
-    out = io.StringIO()
-    saved = sys.stdin
-    sys.stdin = io.StringIO(json.dumps(payload))
-    try:
-        with redirect_stdout(out):
-            try:
-                mod.main()
-            except SystemExit:
-                pass
-    finally:
-        sys.stdin = saved
-    s = out.getvalue().strip()
-    return json.loads(s) if s else None
 
 
 def _askq_transcript(citation_line):
@@ -110,13 +82,17 @@ class TestHookWiring(unittest.TestCase):
 
 class TestPreToolUseOutput(unittest.TestCase):
     def setUp(self):
-        # Isolate loop-guard state per test (STATE_DIR derives from this at import).
+        # Isolate loop-guard state per test. The host adapter that
+        # grounding_engine.run selects per event is the seam under test here.
         self._tmp = tempfile.mkdtemp()
         self._old = os.environ.get("CLAUDE_PLUGIN_DATA")
         os.environ["CLAUDE_PLUGIN_DATA"] = self._tmp
-        self.mod = _load_verifier()
+        # BLOCK_CODES is a shared module global; save/restore so a block test
+        # doesn't leak into the warn test or another file.
+        self._old_block = set(grounding_engine.BLOCK_CODES)
 
     def tearDown(self):
+        grounding_engine.BLOCK_CODES = self._old_block
         if self._old is None:
             os.environ.pop("CLAUDE_PLUGIN_DATA", None)
         else:
@@ -127,9 +103,9 @@ class TestPreToolUseOutput(unittest.TestCase):
         """Should emit a systemMessage grounding report at PreToolUse (warn-only)."""
         tr = _write_transcript(_askq_transcript("Read(README.md:1)"))
         try:
-            out = _run_main(self.mod, {"transcript_path": tr, "cwd": REPO,
-                                       "session_id": "warn",
-                                       "hook_event_name": "PreToolUse"})
+            out = grounding_engine.run({"transcript_path": tr, "cwd": REPO,
+                                        "session_id": "warn",
+                                        "hook_event_name": "PreToolUse"})
         finally:
             os.remove(tr)
         self.assertIsNotNone(out, "expected output at the AskUserQuestion boundary")
@@ -138,12 +114,12 @@ class TestPreToolUseOutput(unittest.TestCase):
 
     def test_block_path_uses_permissionDecision_deny_at_pretooluse(self):
         """Should block via permissionDecision:deny, not the Stop-only decision:block."""
-        self.mod.BLOCK_CODES = {"FABRICATED"}
+        grounding_engine.BLOCK_CODES = {"FABRICATED"}
         tr = _write_transcript(_askq_transcript("Read(does/not/exist.py:1)"))
         try:
-            out = _run_main(self.mod, {"transcript_path": tr, "cwd": REPO,
-                                       "session_id": "block",
-                                       "hook_event_name": "PreToolUse"})
+            out = grounding_engine.run({"transcript_path": tr, "cwd": REPO,
+                                        "session_id": "block",
+                                        "hook_event_name": "PreToolUse"})
         finally:
             os.remove(tr)
         self.assertIsNotNone(out)
@@ -155,12 +131,12 @@ class TestPreToolUseOutput(unittest.TestCase):
 
     def test_block_path_still_uses_decision_block_at_stop(self):
         """Should keep the {"decision":"block"} schema for the Stop event."""
-        self.mod.BLOCK_CODES = {"FABRICATED"}
+        grounding_engine.BLOCK_CODES = {"FABRICATED"}
         tr = _write_transcript(_askq_transcript("Read(does/not/exist.py:1)"))
         try:
-            out = _run_main(self.mod, {"transcript_path": tr, "cwd": REPO,
-                                       "session_id": "stop",
-                                       "hook_event_name": "Stop"})
+            out = grounding_engine.run({"transcript_path": tr, "cwd": REPO,
+                                        "session_id": "stop",
+                                        "hook_event_name": "Stop"})
         finally:
             os.remove(tr)
         self.assertIsNotNone(out)
@@ -169,9 +145,6 @@ class TestPreToolUseOutput(unittest.TestCase):
 
 
 class TestCitationListing(unittest.TestCase):
-    def setUp(self):
-        self.mod = _load_verifier()
-
     def test_lists_only_pointer_verified_citations(self):
         """Should list only pointer-verified citations; self-reported and failed are
         not listed (failures still surface in the Grounding check section)."""
@@ -182,7 +155,7 @@ class TestCitationListing(unittest.TestCase):
             ("Bash(git push)", "self-reported", None),
             ("Read(missing.py:1)", "FABRICATED", None),
         ]
-        out = self.mod.report(findings, stats, cited)
+        out = grounding_engine.report(findings, stats, cited)
 
         # pointer-verified IS listed
         self.assertIn("[pointer-verified]", out)

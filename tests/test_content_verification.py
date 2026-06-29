@@ -3,7 +3,6 @@
 Covers the shared BACKTICK_SPAN pattern, Bash-output checking, opt-in file-line
 content checking, and how the new tiers are reported. Stdlib unittest only.
 """
-import importlib.util
 import json
 import os
 import sys
@@ -14,16 +13,7 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCRIPTS = os.path.join(REPO, "scripts")
 sys.path.insert(0, SCRIPTS)
 import grounding_spec  # noqa: E402
-
-
-def _load_verifier():
-    """Import grounding-verifier.py fresh (hyphenated name -> load by path)."""
-    spec = importlib.util.spec_from_file_location(
-        "grounding_verifier", os.path.join(SCRIPTS, "grounding-verifier.py")
-    )
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
+import grounding_engine  # noqa: E402
 
 
 class TestBacktickSpan(unittest.TestCase):
@@ -47,7 +37,7 @@ def _write_transcript(rows):
 
 class TestCollectBashCalls(unittest.TestCase):
     def setUp(self):
-        self.mod = _load_verifier()
+        self.mod = grounding_engine
 
     def test_pairs_bash_command_with_its_output(self):
         """Should return each Bash call as a (command, output) pair."""
@@ -105,7 +95,7 @@ class TestCollectBashCalls(unittest.TestCase):
 
 class TestVerifyBashCall(unittest.TestCase):
     def setUp(self):
-        self.mod = _load_verifier()
+        self.mod = grounding_engine
 
     def _verify(self, body, bash_calls):
         text = "A claim `[1]`.\n\n`[1]` " + body
@@ -199,7 +189,7 @@ class TestVerifyBashCall(unittest.TestCase):
 
 class TestVerifyFileContent(unittest.TestCase):
     def setUp(self):
-        self.mod = _load_verifier()
+        self.mod = grounding_engine
 
     def _file(self, lines):
         fd, path = tempfile.mkstemp(suffix=".py")
@@ -326,7 +316,7 @@ class TestVerifyFileContent(unittest.TestCase):
 
 class TestReportingTiers(unittest.TestCase):
     def setUp(self):
-        self.mod = _load_verifier()
+        self.mod = grounding_engine
 
     def test_summary_includes_call_verified(self):
         """Should show a call-verified count in the summary line."""

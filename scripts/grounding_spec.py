@@ -6,8 +6,8 @@ The tool taxonomy — which tools exist, what grade they're in, how they're
 cited, and whether the verifier mechanically checks them — is defined ONCE in
 the TOOLS table below. Both consumers derive from it:
 
-  - grounding-verifier.py imports FILE_CITE, RANGE_TOOLS, ALL_TOOLS, CHECKED.
-  - source-attribution-inject.sh runs `python3 grounding_spec.py --emit-policy`
+  - grounding_engine.py imports FILE_CITE, RANGE_TOOLS, ALL_TOOLS, CHECKED.
+  - the UserPromptSubmit hook runs `python3 grounding_spec.py --emit-policy`
     to print the injection policy text.
 
 So a tool can never be documented-but-unchecked or checked-but-undocumented:
@@ -186,7 +186,7 @@ def tool_grade(tool_name):
     return None
 
 
-# --- policy rendering (consumed by source-attribution-inject.sh) -------------
+# --- policy rendering (consumed by the UserPromptSubmit hook) ----------------
 def _atom_lines(grade):
     out = []
     for t in TOOLS:

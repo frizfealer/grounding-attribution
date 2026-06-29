@@ -4,7 +4,6 @@ The toggle lives in grounding_spec.py so BOTH halves (the --emit-policy injector
 and the verifier, which imports grounding_spec) consult one switch. The flag file
 is global (not per-session) and defaults to on when absent. Stdlib unittest only.
 """
-import importlib.util
 import io
 import json
 import os
@@ -18,15 +17,7 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCRIPTS = os.path.join(REPO, "scripts")
 sys.path.insert(0, SCRIPTS)
 import grounding_spec  # noqa: E402
-
-
-def _load_verifier():
-    """Import grounding-verifier.py fresh (hyphenated name -> load by path)."""
-    spec = importlib.util.spec_from_file_location(
-        "grounding_verifier", os.path.join(SCRIPTS, "grounding-verifier.py"))
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
+import grounding_engine  # noqa: E402
 
 
 def _write_transcript(rows):
@@ -35,23 +26,6 @@ def _write_transcript(rows):
         for r in rows:
             f.write(json.dumps(r) + "\n")
     return path
-
-
-def _run_main(mod, payload):
-    """Run verifier.main() with payload on stdin; return parsed stdout JSON or None."""
-    out = io.StringIO()
-    saved = sys.stdin
-    sys.stdin = io.StringIO(json.dumps(payload))
-    try:
-        with redirect_stdout(out):
-            try:
-                mod.main()
-            except SystemExit:
-                pass
-    finally:
-        sys.stdin = saved
-    s = out.getvalue().strip()
-    return json.loads(s) if s else None
 
 
 def _bad_citation_transcript():
@@ -169,24 +143,22 @@ class TestToggle(unittest.TestCase):
         self.assertIn(": off", out)
 
     def test_verifier_noops_when_disabled(self):
-        """Verifier main() should exit 0 with no output when grounding is off."""
+        """Engine run() should return None (print nothing) when grounding is off."""
         grounding_spec.set_enabled(False)
-        verifier = _load_verifier()
         tr = _write_transcript(_bad_citation_transcript())
         try:
-            out = _run_main(verifier, {"transcript_path": tr, "cwd": REPO,
-                                       "session_id": "off", "hook_event_name": "Stop"})
+            out = grounding_engine.run({"transcript_path": tr, "cwd": REPO,
+                                        "session_id": "off", "hook_event_name": "Stop"})
         finally:
             os.remove(tr)
         self.assertIsNone(out)
 
     def test_verifier_reports_when_enabled(self):
-        """Verifier should still report on the same input when grounding is on."""
-        verifier = _load_verifier()
+        """Engine run() should still report on the same input when grounding is on."""
         tr = _write_transcript(_bad_citation_transcript())
         try:
-            out = _run_main(verifier, {"transcript_path": tr, "cwd": REPO,
-                                       "session_id": "on", "hook_event_name": "Stop"})
+            out = grounding_engine.run({"transcript_path": tr, "cwd": REPO,
+                                        "session_id": "on", "hook_event_name": "Stop"})
         finally:
             os.remove(tr)
         self.assertIsNotNone(out)

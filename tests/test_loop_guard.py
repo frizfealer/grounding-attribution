@@ -5,34 +5,27 @@ per-session state file (count + fingerprint). It must reach that ceiling even on
 a forced continuation -- it must NOT short-circuit on stop_hook_active, which is
 documented but known to mis-propagate. Stdlib unittest only.
 """
-import importlib.util
 import os
 import shutil
+import sys
 import tempfile
 import time
 import unittest
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCRIPTS = os.path.join(REPO, "scripts")
-
-
-def _load_verifier():
-    """Import grounding-verifier.py fresh (hyphenated name -> load by path)."""
-    spec = importlib.util.spec_from_file_location(
-        "grounding_verifier", os.path.join(SCRIPTS, "grounding-verifier.py")
-    )
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
+sys.path.insert(0, SCRIPTS)
+import loop_guard  # noqa: E402
 
 
 class TestLoopGuard(unittest.TestCase):
     def setUp(self):
-        # Isolate loop-guard state per test (STATE_DIR derives from this at import).
+        # Isolate loop-guard state per test. _state_dir() reads CLAUDE_PLUGIN_DATA
+        # at call time, so setting it here is enough — no re-import needed.
         self._tmp = tempfile.mkdtemp()
         self._old = os.environ.get("CLAUDE_PLUGIN_DATA")
         os.environ["CLAUDE_PLUGIN_DATA"] = self._tmp
-        self.mod = _load_verifier()
+        self.mod = loop_guard
 
     def tearDown(self):
         if self._old is None:

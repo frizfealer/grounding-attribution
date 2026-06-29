@@ -51,14 +51,13 @@ Or via a marketplace / GitHub repo once published (see Claude Code plugin docs).
 ## Requirements
 
 - Python 3 on `PATH` (standard library only — no pip installs)
-- A POSIX shell (the injection hook is a tiny `bash` wrapper)
 
 ## Behavior & tuning
 
 - **Mostly warn-only.** By default only `CONTENT_MISMATCH` blocks (a backticked
   quote that isn't a verbatim slice of the cited line); every other finding just
   warns. Tune the blocking set via `BLOCK_CODES` in
-  `scripts/grounding-verifier.py` — `BLOCK_CODES = set()` for pure warn-only, or
+  `scripts/grounding_engine.py` — `BLOCK_CODES = set()` for pure warn-only, or
   add codes like `{"CONTENT_MISMATCH", "FABRICATED"}`.
 - When blocking is on, a **loop guard** caps forced retries
   (`MAX_FORCED_CONTINUATIONS`, default 3), stops on no-progress, and resets on a

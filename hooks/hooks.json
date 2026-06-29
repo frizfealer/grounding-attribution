@@ -1,12 +1,13 @@
 {
-  "description": "Inject the source-attribution policy each turn (UserPromptSubmit) and verify filesystem-checkable citations both when Claude asks the user a question (PreToolUse/AskUserQuestion — Stop does not fire there) and when Claude finishes (Stop).",
+  "description": "Inject the source-attribution policy each turn (UserPromptSubmit — not SessionStart, so the policy survives compaction in long sessions, at a few tokens per turn) and verify filesystem-checkable citations both when Claude asks the user a question (PreToolUse/AskUserQuestion — Stop does not fire there) and when Claude finishes (Stop).",
   "hooks": {
     "UserPromptSubmit": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/source-attribution-inject.sh"
+            "command": "python3",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/grounding_spec.py", "--emit-policy"]
           }
         ]
       }
